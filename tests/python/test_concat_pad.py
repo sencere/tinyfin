@@ -1,0 +1,32 @@
+import sys, os
+here = os.path.dirname(__file__)
+root = os.path.normpath(os.path.join(here, '..', '..', 'python'))
+sys.path.insert(0, root)
+
+import numpy as np
+from tinyfin import Tensor
+
+
+def test_concat_and_stack():
+    a = Tensor.new([2, 3], requires_grad=False); a.numpy_view()[:] = np.ones((2,3), dtype=np.float32)
+    b = Tensor.new([2, 3], requires_grad=False); b.numpy_view()[:] = 2*np.ones((2,3), dtype=np.float32)
+    c = a.concat(b, axis=0)
+    assert c.shape() == [4, 3]
+    np.testing.assert_allclose(c.to_numpy(), np.concatenate([a.to_numpy(), b.to_numpy()], axis=0))
+
+    s = a.stack(b, axis=0)
+    np.testing.assert_allclose(s.to_numpy(), np.stack([a.to_numpy(), b.to_numpy()], axis=0))
+
+def test_pad2d():
+    x = Tensor.new([1, 1, 2, 2], requires_grad=False)
+    x.numpy_view()[:] = np.array([[[[1, 2], [3, 4]]]], dtype=np.float32)
+    y = x.pad2d(1, 1, value=0.0)
+    assert y.shape() == [1, 1, 4, 4]
+    arr = y.to_numpy()
+    np.testing.assert_allclose(arr[0,0,1:3,1:3], np.array([[1,2],[3,4]], dtype=np.float32))
+
+
+if __name__ == "__main__":
+    test_concat_and_stack()
+    test_pad2d()
+    print("[test_concat_pad.py] PASS")

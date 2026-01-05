@@ -1,0 +1,20 @@
+# build artifacts
+libtinyfin.so
+tests/test_*
+
+# python caches / pytest
+__pycache__/
+python/__pycache__/
+tests/python/__pycache__/
+.pytest_cache/
+
+# checkpoints / examples outputs
+checkpoints/
+*.ckpt.json
+*.opt.bin
+*.sched.json
+
+# editor / misc
+*.swp
+*.swo
+*.DS_Store

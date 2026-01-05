@@ -1,0 +1,180 @@
+#include "ops_sub.h"
+#include "tensor.h"
+#include "autograd.h"
+#include <stdlib.h>
+
+/* ---------- small local indexing helpers (copied from ops_add) ---------- */
+
+static void unravel_index(int linear, const int *shape, int ndim, int *idx) {
+    for (int d = ndim - 1; d >= 0; d--) {
+        idx[d] = linear % shape[d];
+        linear /= shape[d];
+    }
+}
+
+static int tensor_offset(const Tensor *t, const int *idx) {
+    int off = 0;
+    for (int d = 0; d < t->ndim; d++) off += idx[d] * t->strides[d];
+    return off;
+}
+
+/* Reduce a broadcasted grad (shape == out_shape) back to target's shape */
+static Tensor *reduce_to_target(const Tensor *grad_out, const Tensor *target) {
+    Tensor *g = tensor_zeros(target->ndim, target->shape);
+    if (!g) return NULL;
+
+    int out_ndim = grad_out->ndim;
+    int *idx_out = (int *)malloc(sizeof(int) * out_ndim);
+    if (!idx_out) { tensor_free(g); return NULL; }
+
+    int *idx_t = (int *)malloc(sizeof(int) * target->ndim);
+    if (!idx_t) { free(idx_out); tensor_free(g); return NULL; }
+
+    for (size_t i = 0; i < grad_out->size; i++) {
+        unravel_index((int)i, grad_out->shape, out_ndim, idx_out);
+
+        /* build target index (align from right) */
+        for (int d = 0; d < target->ndim; d++) {
+            int out_d = d + (out_ndim - target->ndim);
+            idx_t[d] = (out_d < 0 || target->shape[d] == 1) ? 0 : idx_out[out_d];
+        }
+
+        int off_t = tensor_offset(g, idx_t);
+        g->data[off_t] += grad_out->data[i];
+    }
+
+    free(idx_out);
+    free(idx_t);
+    return g;
+}
+
+/* -------------------- forward / backward for sub -------------------- */
+
+static void sub_fwd(Tensor *a, Tensor *b, Tensor *out) {
+    int *out_shape = NULL;
+    int out_ndim = 0;
+
+    if (!tensor_broadcast_shape(a, b, &out_shape, &out_ndim)) return;
+
+    Tensor ea = tensor_expand(a, out_shape, out->ndim);
+    Tensor eb = tensor_expand(b, out_shape, out->ndim);
+
+    int *idx = (int *)malloc(sizeof(int) * out->ndim);
+    if (!idx) { free(out_shape); return; }
+
+    for (size_t i = 0; i < out->size; i++) {
+        unravel_index((int)i, out_shape, out->ndim, idx);
+        int ia = tensor_offset(&ea, idx);
+        int ib = tensor_offset(&eb, idx);
+        if (out->dtype == DTYPE_FLOAT32) {
+            float va = tensor_get_f32_at(&ea, (size_t)ia);
+            float vb = tensor_get_f32_at(&eb, (size_t)ib);
+            tensor_set_f32_at(out, i, va - vb);
+        } else {
+            double va = tensor_get_f64_at(&ea, (size_t)ia);
+            double vb = tensor_get_f64_at(&eb, (size_t)ib);
+            tensor_set_f64_at(out, i, va - vb);
+        }
+    }
+
+    free(idx);
+    free(out_shape);
+}
+
+static void sub_bwd(AutogradNode *n) {
+    Tensor *out = n->out;
+    if (!out || !out->grad) return;
+
+    if (n->a && n->a->requires_grad) {
+        Tensor *ga = reduce_to_target(out->grad, n->a);
+        if (ga) {
+            if (!n->a->grad) n->a->grad = ga;
+            else {
+                for (size_t i = 0; i < n->a->size; i++) n->a->grad->data[i] += ga->data[i];
+                tensor_free(ga);
+            }
+        }
+    }
+
+    if (n->b && n->b->requires_grad) {
+        /* derivative of a - b wrt b is -1 */
+        Tensor *gb = reduce_to_target(out->grad, n->b);
+        if (gb) {
+            for (size_t i = 0; i < gb->size; i++) gb->data[i] = -gb->data[i];
+            if (!n->b->grad) n->b->grad = gb;
+            else {
+                for (size_t i = 0; i < n->b->size; i++) n->b->grad->data[i] += gb->data[i];
+                tensor_free(gb);
+            }
+        }
+    }
+}
+
+/* -------------------- public entry point -------------------- */
+
+Tensor *tensor_sub(Tensor *a, Tensor *b) {
+    int *out_shape = NULL;
+    int out_ndim = 0;
+
+    if (!tensor_broadcast_shape(a, b, &out_shape, &out_ndim)) return NULL;
+    /* simple device check */
+    if (a->device != b->device) { free(out_shape); return NULL; }
+
+    Tensor *out = tensor_new(out_ndim, out_shape);
+    if (!out) { free(out_shape); return NULL; }
+    out->requires_grad = (a->requires_grad || b->requires_grad);
+
+    /* preserve dtype like other ops */
+    out->dtype = a->dtype;
+    out->device = a->device;
+    tensor_set_dtype(out, a->dtype);
+
+    sub_fwd(a, b, out);
+
+    if (out->requires_grad) {
+        AutogradNode *n = (AutogradNode *)malloc(sizeof(*n));
+        if (!n) { free(out_shape); return out; }
+        n->out = out;
+        n->a = a;
+        n->b = b;
+        n->backward = sub_bwd;
+        n->n_inputs = 2;
+        n->inputs = (Tensor **)malloc(sizeof(Tensor *) * 2);
+        n->inputs[0] = a;
+        n->inputs[1] = b;
+        n->visited = 0;
+        Tensor_attach_gradients(out, n);
+    }
+
+    free(out_shape);
+    return out;
+}
+
+int tensor_sub_(Tensor *a, Tensor *b) {
+    if (!a || !b) return 0;
+    if (a->ndim != b->ndim) return 0;
+    for (int d = 0; d < a->ndim; d++) if (a->shape[d] != b->shape[d]) return 0;
+
+    /* Refuse in-place when either tensor requires grad. */
+    if (a->requires_grad || b->requires_grad) return 0;
+    int *idx = (int *)malloc(sizeof(int) * a->ndim);
+    if (!idx) return 0;
+
+    for (size_t i = 0; i < a->size; i++) {
+        unravel_index((int)i, a->shape, a->ndim, idx);
+        int off_a = tensor_offset(a, idx);
+        int off_b = tensor_offset(b, idx);
+        if (a->dtype == DTYPE_FLOAT32) {
+            float va = tensor_get_f32_at(a, (size_t)off_a);
+            float vb = tensor_get_f32_at(b, (size_t)off_b);
+            tensor_set_f32_at(a, (size_t)off_a, va - vb);
+        } else {
+            double va = tensor_get_f64_at(a, (size_t)off_a);
+            double vb = tensor_get_f64_at(b, (size_t)off_b);
+            tensor_set_f64_at(a, (size_t)off_a, va - vb);
+        }
+    }
+
+    free(idx);
+    return 1;
+}
