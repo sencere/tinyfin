@@ -1,6 +1,5 @@
 # build artifacts
 libtinyfin.so
-tests/test_*
 
 # python caches / pytest
 __pycache__/
