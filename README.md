@@ -1,6 +1,6 @@
 # tinyfin
 
-TinyFin is a small, educational deep learning library in C with a minimal autograd engine, a thin Python ctypes binding, and optional BLAS/CUDA backends.
+Tinyfin is a small, educational deep learning library in C with a minimal autograd engine, a thin Python ctypes binding, and optional BLAS/CUDA backends.
 
 ![tinyfin logo](images/tinyfin.png)
 
