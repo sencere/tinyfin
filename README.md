@@ -1,6 +1,6 @@
-# tinyfin
+![tinyfin logo](images/tinyfin.png)
 
-TinyFin is a small, educational deep learning library in C with a minimal autograd engine, a thin Python ctypes binding, and optional BLAS/CUDA backends.
+tinyfin is a small, educational deep learning library in C with a minimal autograd engine, a thin Python ctypes binding, and optional BLAS/CUDA backends.
 
 This repository was previously known as `torch_slim_c` / `ctorch`. The code and API remain the same; the project name is now `tinyfin`.
 
