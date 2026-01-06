@@ -9,7 +9,10 @@ typedef struct Backend {
     Tensor *(*matmul)(Tensor *a, Tensor *b);
     /* optional conv2d override */
     Tensor *(*conv2d)(Tensor *input, Tensor *weight, Tensor *bias);
-    /* future: memcpy, elementwise kernels, etc. */
+    /* optional elementwise add/mul overrides (float32) */
+    Tensor *(*add)(Tensor *a, Tensor *b);
+    Tensor *(*mul)(Tensor *a, Tensor *b);
+    /* future: memcpy, more elementwise kernels, etc. */
 } Backend;
 
 /* register / get current backend (default: NULL => CPU-only) */

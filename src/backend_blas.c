@@ -126,6 +126,8 @@ static Backend blas_backend = {
     .name = "blas",
     .matmul = blas_matmul,
     .conv2d = blas_conv2d,
+    .add = NULL,
+    .mul = NULL,
 };
 
 __attribute__((constructor))

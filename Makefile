@@ -23,12 +23,20 @@ NVCCFLAGS += -DTINYFIN_ENABLE_CUDA
 LDFLAGS += -lcudart
 else
 CUDA_OBJS :=
+# register CUDA stub backend for fallback selection when CUDA is disabled
+CFLAGS += -DTINYFIN_ENABLE_CUDA_STUB
 endif
 
 ifdef ENABLE_BLAS
 CFLAGS += -DTINYFIN_ENABLE_BLAS
 LDFLAGS += -lopenblas
+else
+# register BLAS stub backend for fallback selection when BLAS is disabled
+CFLAGS += -DTINYFIN_ENABLE_BLAS_STUB
 endif
+
+# Always register stub backends for OpenGL/Vulkan so backend selection can be tested.
+CFLAGS += -DTINYFIN_ENABLE_OPENGL_STUB -DTINYFIN_ENABLE_VULKAN_STUB
 
 # Test files: discover all tests in the tests/ directory
 TESTS := $(wildcard tests/*.c)

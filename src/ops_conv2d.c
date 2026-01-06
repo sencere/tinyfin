@@ -1,6 +1,7 @@
 #include "ops_conv2d.h"
 #include "tensor.h"
 #include "autograd.h"
+#include "backend.h"
 #include "scratch.h"
 #include <stdlib.h>
 
@@ -144,6 +145,16 @@ Tensor *tensor_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     int KW = weight->shape[3];
     int Hout = H - KH + 1;
     int Wout = W - KW + 1;
+
+    /* Try backend (e.g., CUDA) first when tensors live on GPU. Backend conv2d
+       currently supports inference-only; if it returns NULL we fall back to CPU. */
+    if (input->device == DEVICE_GPU && weight->device == DEVICE_GPU) {
+        Backend *bk = backend_get();
+        if (bk && bk->conv2d) {
+            Tensor *out = bk->conv2d(input, weight, bias);
+            if (out) return out;
+        }
+    }
 
     int out_shape[4] = {N, C_out, Hout, Wout};
     Tensor *out = tensor_new(4, out_shape);

@@ -1,12 +1,13 @@
 """
 MNIST-like MLP training example using only tinyfin + numpy.
 Reads IDX files if present (data/mnist/*.ubyte); otherwise falls back to synthetic data.
+Respects TINYFIN_BACKEND for backend selection.
 """
 import os, sys, time, struct
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 import numpy as np
-from tinyfin import Tensor, SGDOpt, cross_entropy_logits
+from tinyfin import Tensor, SGDOpt, cross_entropy_logits, backend_set
 from data_utils import ensure_mnist
 
 
@@ -59,6 +60,8 @@ def maybe_load_mnist(root="data/mnist"):
 
 
 def main():
+    backend = os.environ.get("TINYFIN_BACKEND", "cpu")
+    backend_set(backend.encode() if isinstance(backend, str) else backend)
     batch_size = 128
     hidden = 256
     in_dim = 28 * 28

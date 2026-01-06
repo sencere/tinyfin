@@ -1,12 +1,13 @@
 """
 CIFAR-like CNN training example using only tinyfin + numpy.
 Reads CIFAR-10 binary batches if present (data/cifar-10-batches-bin); otherwise uses synthetic data.
+Respects TINYFIN_BACKEND for backend selection.
 """
 import os, sys, time, glob
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 import numpy as np
-from tinyfin import Tensor, SGDOpt, cross_entropy_logits
+from tinyfin import Tensor, SGDOpt, cross_entropy_logits, backend_set
 from data_utils import ensure_cifar
 
 
@@ -50,6 +51,8 @@ def maybe_load_cifar(root="data/cifar-10-batches-bin"):
 
 
 def main():
+    backend = os.environ.get("TINYFIN_BACKEND", "cpu")
+    backend_set(backend.encode() if isinstance(backend, str) else backend)
     batch_size = 32
     steps = 200
     num_classes = 10

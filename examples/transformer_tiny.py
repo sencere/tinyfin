@@ -6,7 +6,7 @@ this illustrates multi-layer MLP over sequence tokens.
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import numpy as np
-from tinyfin import Tensor, cross_entropy_logits, SGDOpt
+from tinyfin import Tensor, cross_entropy_logits, SGDOpt, backend_set
 
 
 def relu(x: Tensor) -> Tensor:
@@ -14,6 +14,8 @@ def relu(x: Tensor) -> Tensor:
 
 
 def main():
+    backend = os.environ.get("TINYFIN_BACKEND", "cpu")
+    backend_set(backend.encode() if isinstance(backend, str) else backend)
     batch, seq, dim, hidden = 8, 16, 32, 64
     rng = np.random.default_rng(0)
 
@@ -55,7 +57,7 @@ def main():
         loss.backward()
         opt.step()
         if step % 10 == 0:
-            print(f"step {step} loss={loss.to_numpy().mean():.4f}")
+            print(f"[backend={backend}] step {step} loss={loss.to_numpy().mean():.4f}")
 
 
 if __name__ == "__main__":

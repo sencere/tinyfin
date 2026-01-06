@@ -4,6 +4,7 @@ root = os.path.normpath(os.path.join(here, '..', '..', 'python'))
 sys.path.insert(0, root)
 
 import numpy as np
+import pytest
 from tinyfin import Tensor
 
 
@@ -25,8 +26,46 @@ def test_pad2d():
     arr = y.to_numpy()
     np.testing.assert_allclose(arr[0,0,1:3,1:3], np.array([[1,2],[3,4]], dtype=np.float32))
 
+def test_concat_shape_error():
+    a = Tensor.new([2, 3], requires_grad=False)
+    b = Tensor.new([3, 3], requires_grad=False)  # mismatch on non-axis dim
+    with pytest.raises(ValueError):
+        _ = a.concat(b, axis=1)
+
+
+def test_concat_axis_out_of_range():
+    a = Tensor.new([2, 3], requires_grad=False)
+    b = Tensor.new([2, 3], requires_grad=False)
+    with pytest.raises(ValueError):
+        _ = a.concat(b, axis=3)
+
+
+def test_stack_shape_error():
+    a = Tensor.new([2, 3], requires_grad=False)
+    b = Tensor.new([2, 2], requires_grad=False)
+    with pytest.raises(ValueError):
+        _ = a.stack(b, axis=0)
+
+
+def test_stack_axis_out_of_range():
+    a = Tensor.new([2, 3], requires_grad=False)
+    b = Tensor.new([2, 3], requires_grad=False)
+    with pytest.raises(ValueError):
+        _ = a.stack(b, axis=5)
+
+
+def test_pad2d_negative_padding_raises():
+    x = Tensor.new([1, 1, 2, 2], requires_grad=False)
+    with pytest.raises(ValueError):
+        _ = x.pad2d(-1, 0, value=0.0)
+
 
 if __name__ == "__main__":
     test_concat_and_stack()
     test_pad2d()
+    test_concat_shape_error()
+    test_concat_axis_out_of_range()
+    test_stack_shape_error()
+    test_stack_axis_out_of_range()
+    test_pad2d_negative_padding_raises()
     print("[test_concat_pad.py] PASS")

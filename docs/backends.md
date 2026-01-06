@@ -1,0 +1,21 @@
+# tinyfin backend guide
+
+The backend registry (`backend.h`) lets tinyfin dispatch heavy ops (matmul/conv2d/elementwise) to alternative engines while retaining a CPU fallback.
+
+## Available backends
+- `cpu` (default): always registered; runs all ops on host.
+- `cuda`: optional; currently provides matmul, broadcast-aware add/mul, and inference-only conv2d (host copy); autograd falls back to CPU for conv2d backward. Enable via `ENABLE_CUDA`/`TINYFIN_ENABLE_CUDA`.
+- `blas`: optional; matmul/conv2d via BLAS (im2col+GEMM). Enable via `ENABLE_BLAS`/`TINYFIN_BACKEND=blas`.
+- `opengl` / `vulkan`: stub backends registered by default for experimentation; currently fall back to CPU and log a warning. Use them as placeholders when prototyping new GPU paths.
+
+Select a backend via env `TINYFIN_BACKEND` or `tinyfin.backend_set("name")` in Python. If an op is unsupported, it falls back to the CPU implementation.
+
+## Contracts and testing
+- All backends must keep shapes/dtypes/devices consistent with CPU semantics.
+- Unsupported ops must return NULL so the CPU path can run.
+- Integration tests should assert identical numerical results for supported ops across backends when available (currently covered for stub selection in `tests/python/test_backend_name.py`).
+
+## Next steps
+- Make CUDA conv2d fully autograd-ready and keep tensors resident on device.
+- Prototype real OpenGL/Vulkan backends using the same registry entry points.
+- Add a mixed-precision gate (fp16/bfloat16) per backend with clear docs on safety/perf (stub in Python via `tinyfin.autocast`).

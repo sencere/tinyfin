@@ -6,6 +6,8 @@ static Backend cpu_backend = {
     .name = "cpu",
     .matmul = NULL,
     .conv2d = NULL,
+    .add = NULL,
+    .mul = NULL,
 };
 
 static Backend *current_backend = NULL;

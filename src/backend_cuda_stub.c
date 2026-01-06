@@ -4,12 +4,14 @@
 #ifdef TINYFIN_ENABLE_CUDA_STUB
 
 static Tensor *cuda_stub_matmul(Tensor *a, Tensor *b) {
+    (void)a; (void)b;
     /* TODO: replace with real CUDA kernel; return NULL to fall back to CPU. */
     fprintf(stderr, "[tinyfin] CUDA backend not available; falling back to CPU matmul\n");
     return NULL;
 }
 
 static Tensor *cuda_stub_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
+    (void)input; (void)weight; (void)bias;
     fprintf(stderr, "[tinyfin] CUDA backend not available; falling back to CPU conv2d\n");
     return NULL;
 }
@@ -18,6 +20,8 @@ static Backend cuda_backend = {
     .name = "cuda",
     .matmul = cuda_stub_matmul,
     .conv2d = cuda_stub_conv2d,
+    .add = NULL,
+    .mul = NULL,
 };
 
 __attribute__((constructor))

@@ -4,6 +4,7 @@
 #ifdef TINYFIN_ENABLE_BLAS_STUB
 
 static Tensor *blas_stub_matmul(Tensor *a, Tensor *b) {
+    (void)a; (void)b;
     fprintf(stderr, "[tinyfin] BLAS backend not linked; falling back to CPU matmul\n");
     return NULL;
 }
@@ -12,6 +13,8 @@ static Backend blas_backend = {
     .name = "blas",
     .matmul = blas_stub_matmul,
     .conv2d = NULL,
+    .add = NULL,
+    .mul = NULL,
 };
 
 __attribute__((constructor))

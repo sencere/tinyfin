@@ -21,6 +21,9 @@ Use the examples to see tinyfin without external frameworks. Run from repo root 
 - `save_load.py` — saves and reloads a tiny linear model + optimizer state.  
   `python examples/save_load.py`
 
+- `backend_mnist_cnn.py` — synthetic MNIST-like CNN with backend toggle.  
+  `TINYFIN_BACKEND=cpu|cuda|opengl|vulkan python examples/backend_mnist_cnn.py`
+
 Notes:
 - For CUDA, build with `ENABLE_CUDA=1` and set `TINYFIN_BACKEND=cuda`.
 - For BLAS matmul backend, build with `ENABLE_BLAS=1` and set `TINYFIN_BACKEND=blas`.

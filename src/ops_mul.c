@@ -1,6 +1,8 @@
 #include "ops_mul.h"
 #include "tensor.h"
 #include "autograd.h"
+#include "backend.h"
+#include "scratch.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -160,14 +162,29 @@ Tensor *tensor_mul(Tensor *a, Tensor *b) {
     /* simple device check */
     if (a->device != b->device) { free(out_shape); return NULL; }
 
-    Tensor *out = tensor_new(out_ndim, out_shape);
-    if (!out) { free(out_shape); return NULL; }
-    out->requires_grad = (a->requires_grad || b->requires_grad);
-    out->dtype = a->dtype;
-    out->device = a->device;
-    tensor_set_dtype(out, a->dtype);
+    Tensor *out = NULL;
 
-    mul_fwd(a, b, out);
+    /* Attempt CUDA backend when tensors are on GPU (broadcast handled in backend). */
+    if (a->device == DEVICE_GPU &&
+        a->dtype == DTYPE_FLOAT32 && b->dtype == DTYPE_FLOAT32) {
+        Backend *bk = backend_get();
+        if (bk && bk->mul) {
+            out = bk->mul(a, b);
+            if (out) {
+                out->requires_grad = (a->requires_grad || b->requires_grad);
+            }
+        }
+    }
+
+    if (!out) {
+        out = tensor_new(out_ndim, out_shape);
+        if (!out) { free(out_shape); return NULL; }
+        out->requires_grad = (a->requires_grad || b->requires_grad);
+        out->dtype = a->dtype;
+        out->device = a->device;
+        tensor_set_dtype(out, a->dtype);
+        mul_fwd(a, b, out);
+    }
 
     if (out->requires_grad) {
         AutogradNode *n = (AutogradNode *)malloc(sizeof(*n));
@@ -193,7 +210,7 @@ int tensor_mul_(Tensor *a, Tensor *b) {
     if (a->ndim != b->ndim) return 0;
     for (int d = 0; d < a->ndim; d++) if (a->shape[d] != b->shape[d]) return 0;
 
-    if (a->requires_grad || b->requires_grad) return 0;
+    if (autograd_get_enabled() && (a->requires_grad || b->requires_grad)) return 0;
 
     int *idx = (int *)malloc(sizeof(int) * a->ndim);
     if (!idx) return 0;

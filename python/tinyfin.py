@@ -705,8 +705,12 @@ class Tensor:
     def permute(self, order):
         if not lib.py_permute: raise RuntimeError('permute not available in C API')
         order = list(order)
-        if len(order) != len(self.shape()):
-            raise ValueError(f"permute order length {len(order)} must match tensor ndim {len(self.shape())}")
+        shape = self.shape()
+        ndim = len(shape)
+        if len(order) != ndim:
+            raise ValueError(f"permute order length {len(order)} must match tensor ndim {ndim}")
+        if sorted(order) != list(range(ndim)):
+            raise ValueError(f"permute order must be a permutation of [0,{ndim-1}]")
         arr = (ctypes.c_int * len(order))(*order)
         p = lib.py_permute(self._ptr, len(order), arr)
         return Tensor(p)
@@ -717,7 +721,24 @@ class Tensor:
             raise TypeError("concat expects Tensor")
         if self.get_device() != other.get_device():
             raise ValueError("concat device mismatch")
+        a_shape = self.shape()
+        b_shape = other.shape()
+        if len(a_shape) != len(b_shape):
+            raise ValueError(f"concat ndim mismatch: {len(a_shape)} vs {len(b_shape)}")
+        ndim = len(a_shape)
+        if not isinstance(axis, int):
+            raise TypeError("concat axis must be int")
+        if axis < -ndim or axis >= ndim:
+            raise ValueError(f"concat axis {axis} out of range for ndim {ndim}")
+        axis = axis % ndim
+        for i, (ad, bd) in enumerate(zip(a_shape, b_shape)):
+            if i == axis:
+                continue
+            if ad != bd:
+                raise ValueError(f"concat shape mismatch at dim {i}: {a_shape} vs {b_shape}")
         p = lib.py_concat(self._ptr, other._ptr, int(axis))
+        if not p:
+            raise ValueError("concat failed; ensure shapes are compatible")
         return Tensor(p)
 
     def stack(self, other, axis=0):
@@ -726,7 +747,22 @@ class Tensor:
             raise TypeError("stack expects Tensor")
         if self.get_device() != other.get_device():
             raise ValueError("stack device mismatch")
+        a_shape = self.shape()
+        b_shape = other.shape()
+        if len(a_shape) != len(b_shape):
+            raise ValueError(f"stack ndim mismatch: {len(a_shape)} vs {len(b_shape)}")
+        for i, (ad, bd) in enumerate(zip(a_shape, b_shape)):
+            if ad != bd:
+                raise ValueError(f"stack shape mismatch at dim {i}: {a_shape} vs {b_shape}")
+        if not isinstance(axis, int):
+            raise TypeError("stack axis must be int")
+        ndim = len(a_shape)
+        if axis < -(ndim + 1) or axis > ndim:
+            raise ValueError(f"stack axis {axis} out of range for ndim {ndim}")
+        axis = axis % (ndim + 1)
         p = lib.py_stack(self._ptr, other._ptr, int(axis))
+        if not p:
+            raise ValueError("stack failed; ensure shapes are compatible")
         return Tensor(p)
 
     def split(self, axis=0, parts=2):
@@ -744,6 +780,8 @@ class Tensor:
         if not lib.py_pad2d: raise RuntimeError('pad2d not available in C API')
         if len(self.shape()) != 4:
             raise ValueError("pad2d expects NCHW input")
+        if pad_h < 0 or pad_w < 0:
+            raise ValueError("pad2d padding must be non-negative")
         p = lib.py_pad2d(self._ptr, int(pad_h), int(pad_w), ctypes.c_float(value))
         return Tensor(p)
 
@@ -1139,6 +1177,29 @@ def backend_set(name: str) -> bool:
         return False
     res = lib.py_backend_set_by_name(name.encode())
     return bool(res)
+
+# Mixed precision (stub): gate for future fp16/bfloat16 autocast per backend.
+_mixed_precision_enabled = False
+
+def set_mixed_precision(enabled: bool = True) -> bool:
+    """Enable/disable mixed precision autocast (stub: currently no-op, future hook)."""
+    global _mixed_precision_enabled
+    _mixed_precision_enabled = bool(enabled)
+    return _mixed_precision_enabled
+
+
+class autocast:
+    """Context manager for mixed precision (stub; currently no-op)."""
+    def __init__(self, enabled: bool = True):
+        self.enabled = enabled
+
+    def __enter__(self):
+        self._prev = _mixed_precision_enabled
+        set_mixed_precision(self.enabled)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        set_mixed_precision(self._prev)
 
 
 class Profiler:
