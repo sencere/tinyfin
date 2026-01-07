@@ -1,7 +1,7 @@
 # tinyfin
 
 <p align="center">
-  <img src="resources/logo/logo.png" alt="tinyfin logo" width="220" />
+  <img src="resources/logo/logo.png" alt="tinyfin logo" />
 </p>
 
 tinyfin is a small, educational deep learning library in C. It ships a minimal autograd engine, thin Python ctypes bindings, and optional BLAS/CUDA backends.
