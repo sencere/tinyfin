@@ -12,6 +12,17 @@ endif
 
 LDFLAGS ?= -lm
 
+# Optional sanitizers: set SANITIZE=address or SANITIZE=undefined
+SANITIZE ?=
+ifneq ($(SANITIZE),)
+CFLAGS += -fsanitize=$(SANITIZE) -fno-omit-frame-pointer
+LDFLAGS += -fsanitize=$(SANITIZE)
+endif
+
+VALGRIND ?= valgrind
+VALGRIND_FLAGS ?= --leak-check=full --track-origins=yes
+VALGRIND_TEST ?= tests/test_div_exp
+
 # Automatically collect all source files
 SRC := $(wildcard src/*.c)
 CUDA_SRC := $(wildcard src/*.cu)
@@ -55,4 +66,15 @@ libtinyfin.so: $(SRC) $(CUDA_OBJS)
 clean:
 	rm -f $(TESTS:.c=) libtinyfin.so $(CUDA_OBJS)
 
-.PHONY: all clean
+asan:
+	$(MAKE) clean
+	$(MAKE) SANITIZE=address DEBUG=1 all libtinyfin.so
+
+ubsan:
+	$(MAKE) clean
+	$(MAKE) SANITIZE=undefined DEBUG=1 all libtinyfin.so
+
+valgrind: all
+	$(VALGRIND) $(VALGRIND_FLAGS) $(VALGRIND_TEST)
+
+.PHONY: all clean asan ubsan valgrind

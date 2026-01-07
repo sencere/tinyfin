@@ -5,6 +5,9 @@ from .tinyfin import (
     no_grad,
     bce_loss,
     cross_entropy_logits,
+    sparse_categorical_crossentropy,
+    categorical_crossentropy,
+    relu,
     assert_finite,
 )
 
@@ -13,6 +16,9 @@ __all__ = [
     "no_grad",
     "bce_loss",
     "cross_entropy_logits",
+    "sparse_categorical_crossentropy",
+    "categorical_crossentropy",
+    "relu",
     "assert_finite",
     "Shape",
 ]

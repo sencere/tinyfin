@@ -7,13 +7,20 @@
 - NN stack: Linear/Conv2D/Embedding/Sequential, activations, losses, DataLoader, schedulers, optimizers (SGD/Momentum/Adam/RMSProp) with state save/load.
 - Training utilities: callbacks, Trainer, gradient clipping/accumulation, no_grad/retain_graph.
 
-## Milestone 4 — Stability & Ergonomics (In progress)
-- Memory safety: Valgrind/ASAN, ownership docs, refcount/arena (TBD).
-- Numerical stability: overflow tests, finiteness checks (core done; broaden).
-- API ergonomics: clearer errors, chainable ops/function+method APIs.
+## Milestone 4 — Stability & Ergonomics (Done)
+- Memory safety: ASAN/UBSAN build targets, valgrind helper, ownership notes; refcount/arena (TBD).
+- Numerical stability: overflow/log clamp tests (C + Python), finiteness checks (core done; broaden).
+- API ergonomics: clearer errors for common losses, method/functional aliases (`relu`, `dot`, `item`), chainable ops/function+method APIs.
+- API convenience: random constructors, init helpers, `flatten` alias, `relu` binding, loss aliases for common names.
 
 ## Milestone 5 — Higher-Order Autograd (Planned)
 - Persistent tape gate, VJP/JVP/HVP helpers, finite-diff checks, scoped to experiments.
+
+## Milestone 5.5 — JIT & Graph Compilation (Planned)
+- Graph capture/export API for compute graphs (forward/backward).
+- Simple graph compiler: op fusion passes, constant folding, shape-aware specialization.
+- Execution cache + fallback to eager mode.
+- Optional AOT export for static inference graphs.
 
 ## Milestone 6 — Performance & Device
 - Backend registry (`TINYFIN_BACKEND`); CPU default. CUDA: matmul, broadcast add/mul, conv2d (inference, CPU backward). BLAS: matmul/conv2d. OpenGL/Vulkan stubs registered.

@@ -112,6 +112,11 @@ class Linear(Module):
         return self.forward(x)
 
 
+class ReLU(Module):
+    def __call__(self, x):
+        return x.relu()
+
+
 class Dropout(Module):
     def __init__(self, p=0.5):
         super().__init__()

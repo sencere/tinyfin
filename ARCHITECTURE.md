@@ -124,6 +124,9 @@ Each tensor contains:
 - Deterministic tensor destruction
 - Explicit ownership rules
 - No garbage collection in C
+- Tensors own their `data` and optional `grad` buffers; free with `tensor_free` when done.
+- Autograd nodes are freed after backward unless `TINYFIN_RETAIN_GRAPH` / `retain_graph` is enabled.
+- Memory checks: `make asan` / `make ubsan` and `make valgrind` for basic leak checks.
 - Planned: refcount or arena allocator
 - Planned: full Valgrind coverage
 

@@ -462,6 +462,56 @@ class Tensor:
         return t
 
     @classmethod
+    def rand(cls, *shape, requires_grad=False, low=0.0, high=1.0):
+        if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        if len(shape) == 0:
+            raise ValueError("rand expects a shape")
+        t = cls.new(list(shape), requires_grad=requires_grad)
+        t.numpy_view()[:] = np.random.uniform(low, high, size=t.shape()).astype(np.float32)
+        return t
+
+    @classmethod
+    def randn(cls, *shape, requires_grad=False, mean=0.0, std=1.0):
+        if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        if len(shape) == 0:
+            raise ValueError("randn expects a shape")
+        t = cls.new(list(shape), requires_grad=requires_grad)
+        t.numpy_view()[:] = (np.random.randn(*t.shape()) * std + mean).astype(np.float32)
+        return t
+
+    @classmethod
+    def kaiming_uniform(cls, *shape, requires_grad=False, a=0.0):
+        if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        if len(shape) < 1:
+            raise ValueError("kaiming_uniform expects a shape")
+        if len(shape) < 2:
+            raise ValueError("kaiming_uniform expects at least 2 dims for fan-in")
+        fan_in = float(shape[0])
+        gain = np.sqrt(2.0 / (1.0 + float(a) ** 2))
+        bound = np.sqrt(3.0) * gain / np.sqrt(fan_in)
+        t = cls.new(list(shape), requires_grad=requires_grad)
+        t.numpy_view()[:] = np.random.uniform(-bound, bound, size=t.shape()).astype(np.float32)
+        return t
+
+    @classmethod
+    def xavier_uniform(cls, *shape, requires_grad=False):
+        if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        if len(shape) < 1:
+            raise ValueError("xavier_uniform expects a shape")
+        if len(shape) < 2:
+            raise ValueError("xavier_uniform expects at least 2 dims for fan-in/fan-out")
+        fan_in = float(shape[0])
+        fan_out = float(shape[1])
+        bound = np.sqrt(6.0 / (fan_in + fan_out))
+        t = cls.new(list(shape), requires_grad=requires_grad)
+        t.numpy_view()[:] = np.random.uniform(-bound, bound, size=t.shape()).astype(np.float32)
+        return t
+
+    @classmethod
     def load(cls, path):
         p = lib.py_tensor_load(path.encode())
         return cls(p)
@@ -483,6 +533,12 @@ class Tensor:
         data_ptr = lib.py_tensor_data_ptr(self._ptr)
         arr = np.ctypeslib.as_array(data_ptr, shape=(size,))
         return arr.reshape(shp).copy()
+
+    def item(self):
+        arr = self.to_numpy()
+        if arr.size != 1:
+            raise ValueError(f"item() expects a single value, got shape {arr.shape}")
+        return arr.item()
 
     def numpy_view(self):
         """Return a numpy view (no copy) over the tensor's underlying data."""
@@ -508,6 +564,24 @@ class Tensor:
         shp_arr = (ctypes.c_int * len(shp))(*shp)
         p = lib.py_reshape(self._ptr, len(shp), shp_arr)
         return Tensor(p)
+
+    def flatten(self, start_dim=0):
+        shape = self.shape()
+        ndim = len(shape)
+        if start_dim < 0:
+            start_dim += ndim
+        if start_dim < 0 or start_dim >= ndim:
+            raise ValueError(f"flatten start_dim out of range for ndim {ndim}")
+        if start_dim == 0:
+            total = 1
+            for d in shape:
+                total *= d
+            return self.reshape([total])
+        prefix = shape[:start_dim]
+        tail = 1
+        for d in shape[start_dim:]:
+            tail *= d
+        return self.reshape(prefix + [tail])
 
     @classmethod
     def new_like(cls, other, requires_grad=0):
@@ -656,6 +730,9 @@ class Tensor:
         p = lib.py_matmul(self._ptr, other._ptr)
         return Tensor(p)
 
+    def dot(self, other):
+        return self.matmul(other)
+
     def exp(self):
         p = lib.py_exp(self._ptr)
         return Tensor(p)
@@ -679,6 +756,11 @@ class Tensor:
         if not lib.py_clamp_min: raise RuntimeError('clamp_min not available in C API')
         p = lib.py_clamp_min(self._ptr, ctypes.c_float(min_val))
         return Tensor(p)
+
+    def relu(self):
+        if not lib.py_clamp_min:
+            raise RuntimeError('relu not available in C API')
+        return self.clamp_min(0.0)
 
     def softmax(self):
         if not lib.py_softmax: raise RuntimeError('softmax not available in C API')
@@ -872,10 +954,36 @@ def cross_entropy_logits(logits, target, weight=None, reduction='mean'):
     if not lib.py_cross_entropy_logits: raise RuntimeError('cross_entropy_logits not available in C API')
     if weight is not None and not isinstance(weight, Tensor):
         raise TypeError('weight must be a Tensor or None')
+    if not isinstance(logits, Tensor) or not isinstance(target, Tensor):
+        raise TypeError('cross_entropy_logits expects Tensor logits and target')
+    log_shape = logits.shape()
+    tgt_shape = target.shape()
+    if len(log_shape) != 2:
+        raise ValueError(f"cross_entropy_logits expects [N,C] logits, got {log_shape}")
+    if len(tgt_shape) != 1 or tgt_shape[0] != log_shape[0]:
+        raise ValueError(f"cross_entropy_logits expects target [N] matching logits batch, got {tgt_shape}")
+    if weight is not None:
+        w_shape = weight.shape()
+        if len(w_shape) != 1 or w_shape[0] != log_shape[1]:
+            raise ValueError(f"cross_entropy_logits weight must be shape [{log_shape[1]}], got {w_shape}")
     r = _reduction_code(reduction)
     wptr = weight._ptr if weight is not None else ctypes.c_void_p(0)
     p = lib.py_cross_entropy_logits(logits._ptr, target._ptr, wptr, int(r))
     return Tensor(p)
+
+
+def sparse_categorical_crossentropy(logits, target, weight=None, reduction='mean'):
+    return cross_entropy_logits(logits, target, weight=weight, reduction=reduction)
+
+
+def categorical_crossentropy(logits, target, weight=None, reduction='mean'):
+    return cross_entropy_logits(logits, target, weight=weight, reduction=reduction)
+
+
+def relu(x):
+    if not isinstance(x, Tensor):
+        raise TypeError(f"relu expects Tensor, got {type(x)}")
+    return x.relu()
 
 
 def assert_finite(tensors, msg=None):
