@@ -32,10 +32,20 @@ Build and test
 - Test binaries are placed in the project root; list them with `ls tests/` and run directly.
 - Python tests live in `tests/python/` and expect the shared library to be built first.
 
+CUDA build and run
+
+- Build CUDA-enabled shared library (requires `nvcc` on PATH):
+  `make -j2 libtinyfin.so ENABLE_CUDA=1`
+- Run CUDA profiler from this repo (ensure local bindings are used):
+  `PYTHONPATH=python TINYFIN_BACKEND=cuda python3 examples/perf_profile.py cuda 512 512 512 20`
+- If the backend still reports CPU, confirm you are loading the local bindings:
+  `PYTHONPATH=python python3 -c "import tinyfin; print(tinyfin.__file__)"`
+
 Using tinyfin
 
 - C: include headers from `include/tinyfin/` and link against `libtinyfin.so`.
 - Python: import via `import tinyfin` after building the shared library (ctypes loads `libtinyfin.so`).
+- For local development from this repo, set `PYTHONPATH=python` so Python imports `python/tinyfin.py`.
 - Examples in `examples/` are ready to run once the shared library is built.
 
 Highlights
