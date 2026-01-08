@@ -1,13 +1,13 @@
 # tinyfin Python API (stub)
 
 Stable namespaces:
-- `tinyfin.tensor`: `Tensor`, `no_grad`, `bce_loss`, `cross_entropy_logits`, `assert_finite`
-- `tinyfin.nn`: `Module`, `Parameter`, `Sequential`, `Linear`, `BatchNorm`, `Dropout`
+- `tinyfin.tensor`: `Tensor`, `no_grad`, `bce_loss`, `cross_entropy_logits`, `assert_finite` (Tensor helpers include `Tensor.from_numpy`)
+- `tinyfin.nn`: `Module`, `Parameter`, `Sequential`, `Linear`, `Embedding`, `Flatten`, `MaxPool2d`, `Conv2d`, `BatchNorm`, `Dropout`, `MLP`, `CrossEntropyLoss`
 - `tinyfin.optim`: `SGDOpt`, `AdamOpt`, `RMSPropOpt`
 - `tinyfin.utils`: `Profiler`, `assert_finite`, `save_checkpoint`, `load_checkpoint`
-- `tinyfin.data`: `Dataset`, `Transform`, `Compose`, `TensorDataset`, `DataLoader`
+- `tinyfin.data`: `Dataset`, `Transform`, `Compose`, `TensorDataset` (including `from_numpy`), `DataLoader` (including `from_numpy`)
 - Built-in loaders: `tinyfin.data.load_mnist()` / `load_cifar10()` (pure Python download/unpack; fall back paths exist)
-- `tinyfin.training`: `Callback`, `CallbackList`, `Trainer`
+- `tinyfin.training`: `Callback`, `CallbackList`, `Trainer` (includes `fit`)
 - `tinyfin.scheduler`: `StepLR`, `ExponentialLR`, `LinearWarmupLR`
 - `tinyfin.callbacks`: `LoggingCallback`, `CheckpointCallback`
 - Autograd toggles: `no_grad`, `set_retain_graph_default(retain)`, `get_retain_graph_default()`
@@ -28,6 +28,7 @@ Env toggles:
 Common patterns:
 ```python
 import tinyfin
+import numpy as np
 from tinyfin.tensor import Tensor, no_grad, assert_finite
 from tinyfin.nn import Sequential, Linear
 from tinyfin.optim import SGDOpt, AdamOpt
@@ -55,8 +56,12 @@ loaded, meta = load_checkpoint(ckpt_path, optimizer=opt)
 # Tensor helpers
 y = Tensor.new([2, 3, 4, 4], requires_grad=False)
 pooled = y.maxpool2d(2)  # shape -> [2, 3, 2, 2]
-reshaped = pooled.reshape([2, -1])  # will raise if sizes mismatch
+reshaped = pooled.reshape([2, 12])
 sq = reshaped.unsqueeze(0).squeeze(0)
+
+# NumPy bridge
+arr = np.random.randn(8, 16).astype(np.float32)
+t = Tensor.from_numpy(arr, requires_grad=True)
 ```
 
 Device/dtype helpers:

@@ -10,10 +10,22 @@ The backend registry (`backend.h`) lets tinyfin dispatch heavy ops (matmul/conv2
 
 Select a backend via env `TINYFIN_BACKEND` or `tinyfin.backend_set("name")` in Python. If an op is unsupported, it falls back to the CPU implementation.
 
+Python helpers:
+```python
+from tinyfin import backend_set, backend_name
+
+ok = backend_set("cuda")
+print("set ok:", ok, "current:", backend_name())
+```
+
+Device mapping (current):
+- CPU: device 0
+- GPU: device 1 (placeholder for CUDA/OpenGL/Vulkan)
+
 ## Contracts and testing
 - All backends must keep shapes/dtypes/devices consistent with CPU semantics.
 - Unsupported ops must return NULL so the CPU path can run.
-- Integration tests should assert identical numerical results for supported ops across backends when available (currently covered for stub selection in `tests/python/test_backend_name.py`).
+- Integration tests should assert identical numerical results for supported ops across backends when available (stub selection/retention is covered in `tests/python/test_backend_name.py` and `tests/python/test_backend_integration.py`).
 
 ## Next steps
 - Make CUDA conv2d fully autograd-ready and keep tensors resident on device.

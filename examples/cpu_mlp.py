@@ -5,35 +5,25 @@ import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import numpy as np
 import time
-from tinyfin import Tensor, SGDOpt, cross_entropy_logits
+from tinyfin import Tensor
+from tinyfin.nn import MLP, CrossEntropyLoss
+from tinyfin.optim import SGDOpt
 
 
 def main():
     np.random.seed(42)
     batch, in_dim, hidden, out_dim = 64, 32, 64, 10
-    x = Tensor.new([batch, in_dim], requires_grad=True)
-    y = Tensor.new([batch], requires_grad=False)
-    x.numpy_view()[:] = np.random.randn(batch, in_dim).astype(np.float32)
-    y.numpy_view()[:] = np.random.randint(0, out_dim, size=batch).astype(np.float32)
+    x = Tensor.from_numpy(np.random.randn(batch, in_dim).astype(np.float32), requires_grad=True)
+    y = Tensor.from_numpy(np.random.randint(0, out_dim, size=batch).astype(np.float32), requires_grad=False)
 
-    w1 = Tensor.new([in_dim, hidden], requires_grad=True)
-    b1 = Tensor.new([hidden], requires_grad=True)
-    w2 = Tensor.new([hidden, out_dim], requires_grad=True)
-    b2 = Tensor.new([out_dim], requires_grad=True)
-    for p in (w1, b1, w2, b2):
-        p.numpy_view()[:] = np.random.randn(*p.shape()).astype(np.float32) * 0.1
-
-    params = [w1, b1, w2, b2]
-    opt = SGDOpt(params, lr=1e-2)
-
-    def forward(x):
-        h = (x.matmul(w1) + b1).relu()
-        return h.matmul(w2) + b2
+    model = MLP(in_dim, [hidden], out_dim)
+    loss_fn = CrossEntropyLoss()
+    opt = SGDOpt(model.parameters(), lr=1e-2)
 
     for step in range(10):
         opt.zero_grad()
-        logits = forward(x)
-        loss = cross_entropy_logits(logits, y)
+        logits = model(x)
+        loss = loss_fn(logits, y)
         loss.backward()
         opt.step()
         if step % 2 == 0:

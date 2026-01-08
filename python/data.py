@@ -166,6 +166,22 @@ class TensorDataset(Dataset):
         self.tensors = tensors
         self.transform = transform
 
+    @classmethod
+    def from_numpy(cls, *arrays, requires_grad=False, device=None, transform: Optional[Callable] = None):
+        if not arrays:
+            raise ValueError("TensorDataset.from_numpy requires at least one array")
+        if isinstance(requires_grad, (list, tuple)):
+            if len(requires_grad) != len(arrays):
+                raise ValueError("requires_grad length must match arrays")
+            reqs = list(requires_grad)
+        else:
+            reqs = [bool(requires_grad)] * len(arrays)
+        tensors = []
+        for arr, req in zip(arrays, reqs):
+            t = Tensor.from_numpy(arr, requires_grad=req, device=device)
+            tensors.append(t)
+        return cls(*tensors, transform=transform)
+
     def __len__(self) -> int:
         return self.tensors[0].shape()[0]
 
@@ -197,6 +213,11 @@ def default_collate(batch: List[Any]) -> Any:
         arrs = [b.to_numpy() for b in batch]
         stacked = np.stack(arrs, axis=0)
         t = Tensor.new(list(stacked.shape))
+        if hasattr(first, "get_device") and hasattr(t, "set_device"):
+            try:
+                t.set_device(first.get_device())
+            except Exception:
+                pass
         t.numpy_view()[:] = stacked
         return t
     if isinstance(first, (tuple, list)):
@@ -297,6 +318,38 @@ class DataLoader:
         if self.drop_last:
             return n // self.batch_size
         return (n + self.batch_size - 1) // self.batch_size
+
+    @classmethod
+    def from_numpy(
+        cls,
+        *arrays,
+        batch_size: int = 1,
+        shuffle: bool = False,
+        drop_last: bool = False,
+        seed: Optional[int] = None,
+        collate_fn: Callable[[List[Any]], Any] = default_collate,
+        num_workers: int = 0,
+        prefetch_batches: int = 0,
+        requires_grad=False,
+        device=None,
+        transform: Optional[Callable] = None,
+    ):
+        dataset = TensorDataset.from_numpy(
+            *arrays,
+            requires_grad=requires_grad,
+            device=device,
+            transform=transform,
+        )
+        return cls(
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=drop_last,
+            seed=seed,
+            collate_fn=collate_fn,
+            num_workers=num_workers,
+            prefetch_batches=prefetch_batches,
+        )
 
 
 # --------- simple built-in loaders (MNIST/CIFAR) ----------

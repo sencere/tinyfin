@@ -76,4 +76,11 @@ class Trainer:
 
         return last_loss
 
+    def fit(self, dataloader, epochs: int = 1, start_epoch: int = 0):
+        history = []
+        for epoch in range(start_epoch, start_epoch + int(epochs)):
+            loss = self.train_epoch(dataloader, epoch=epoch)
+            history.append(loss)
+        return history
+
 __all__ = ["Callback", "CallbackList", "Trainer"]

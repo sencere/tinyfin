@@ -43,7 +43,8 @@ Highlights
 - C core in `src/`, headers in `include/tinyfin/`.
 - Python bindings in `python/tinyfin.py` with public modules `tinyfin.tensor`, `tinyfin.nn`, `tinyfin.optim`, `tinyfin.utils`, `tinyfin.data`.
 - Training utilities: `DataLoader`, `Trainer`, callbacks (`LoggingCallback`, `CheckpointCallback`), schedulers (`StepLR`, `ExponentialLR`, `LinearWarmupLR`), and optimizers (`SGDOpt`, `AdamOpt`, `RMSPropOpt`).
-- Tensor helpers: `reshape`, `squeeze/unsqueeze`, `maxpool2d/avgpool2d` with shape validation.
+- NN helpers: `Embedding`, `MLP`, `Flatten`, `MaxPool2d`, and `CrossEntropyLoss`.
+- Tensor helpers: `from_numpy`, `reshape`, `squeeze/unsqueeze`, `maxpool2d/avgpool2d` with shape validation.
 - Numerical stability helpers: stable softmax/log-softmax, epsilon guards, exp clamp, `Tensor.has_nan_or_inf`, and `assert_finite`.
 
 Examples
@@ -53,7 +54,7 @@ from tinyfin import Tensor
 
 x = Tensor.new([1, 3, 4, 4])
 pooled = x.maxpool2d(2)          # -> shape [1, 3, 2, 2]
-flat = pooled.reshape([1, 3, -1])
+flat = pooled.reshape([1, 12])
 sq = flat.squeeze()              # removes dims of size 1
 ```
 
@@ -65,6 +66,7 @@ Docs and guides
 - `docs/api.md`: short Python API stub.
 - `docs/backends.md`: backend selection and `TINYFIN_BACKEND` toggle (CPU default; CUDA/BLAS optional).
 - `docs/examples.md`: example roadmap and status.
+- `docs/howto.md`: short how-to recipes for common tasks.
 - `docs/mixed_precision.md`: stubbed `tinyfin.autocast` / `set_mixed_precision`.
 
 Status

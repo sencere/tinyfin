@@ -476,6 +476,15 @@ class Tensor:
         return t
 
     @classmethod
+    def from_numpy(cls, arr, requires_grad=False, device=None, dtype=None):
+        np_arr = np.asarray(arr, dtype=dtype) if dtype is not None else np.asarray(arr)
+        t = cls.new(list(np_arr.shape), requires_grad=requires_grad)
+        if device is not None and hasattr(t, "set_device"):
+            t.set_device(device)
+        t.numpy_view()[:] = np_arr
+        return t
+
+    @classmethod
     def randn(cls, *shape, requires_grad=False, mean=0.0, std=1.0):
         if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
             shape = shape[0]

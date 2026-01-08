@@ -49,3 +49,4 @@
 - Backend selection works; CUDA/BLAS usable when built; GL/Vulkan stubs in place.
 - Tests cover schedulers, optimizer state, dataloader, callbacks, overflow/validation, backend selection, mixed-precision stub.
 - Examples: MNIST/CIFAR/transformer, backend-aware CNN; perf profiler and CUDA demo available.
+- Ergonomics: `Tensor.from_numpy`, `Trainer.fit`, `MLP/Flatten/MaxPool2d`, `CrossEntropyLoss`, and dataset helpers (`TensorDataset/DataLoader.from_numpy`) to reduce example boilerplate.

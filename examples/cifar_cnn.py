@@ -7,20 +7,11 @@ import os, sys, time, glob
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 import numpy as np
-from tinyfin import Tensor, SGDOpt, cross_entropy_logits, backend_set
+from tinyfin import Tensor, backend_set
+from tinyfin import nn
+from tinyfin.nn import CrossEntropyLoss
+from tinyfin.optim import SGDOpt
 from data_utils import ensure_cifar
-
-
-def relu(x: Tensor) -> Tensor:
-    return x.clamp_min(0.0)
-
-
-def one_hot(labels, num_classes):
-    arr = np.zeros((labels.shape[0], num_classes), dtype=np.float32)
-    arr[np.arange(labels.shape[0]), labels] = 1.0
-    t = Tensor.new(list(arr.shape), requires_grad=False)
-    t.numpy_view()[:] = arr
-    return t
 
 
 def maybe_load_cifar(root="data/cifar-10-batches-bin"):
@@ -61,15 +52,16 @@ def main():
     data_size = len(labels) if labels is not None else 50000
 
     # Simple CNN: conv -> pool -> flatten -> linear
-    w1 = Tensor.new([16, 3, 3, 3], requires_grad=True); w1.numpy_view()[:] = rng.standard_normal((16, 3, 3, 3), dtype=np.float32) * 0.05
-    b1 = Tensor.new([16], requires_grad=True); b1.numpy_view()[:] = 0
-    # After 32x32 input, 3x3 valid conv -> 30x30, then maxpool2d(k=2) -> 15x15
     flat_dim = 16 * 15 * 15
-    w2 = Tensor.new([flat_dim, num_classes], requires_grad=True); w2.numpy_view()[:] = rng.standard_normal((flat_dim, num_classes), dtype=np.float32) * 0.05
-    b2 = Tensor.new([num_classes], requires_grad=True); b2.numpy_view()[:] = 0
-
-    params = [w1, b1, w2, b2]
-    opt = SGDOpt(params, lr=0.05)
+    model = nn.Sequential(
+        nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3),
+        nn.ReLU(),
+        nn.MaxPool2d(2),
+        nn.Flatten(),
+        nn.Linear(flat_dim, num_classes),
+    )
+    loss_fn = CrossEntropyLoss()
+    opt = SGDOpt(model.parameters(), lr=0.05)
 
     correct = 0
     total = 0
@@ -81,18 +73,12 @@ def main():
         else:
             x_np = rng.standard_normal((batch_size, 3, 32, 32), dtype=np.float32)
             y_idx = rng.integers(0, num_classes, size=batch_size)
-        x = Tensor.new([batch_size, 3, 32, 32], requires_grad=True); x.numpy_view()[:] = x_np
-        y = Tensor.new([batch_size], requires_grad=False)
-        y.numpy_view()[:] = y_idx.astype(np.float32)
+        x = Tensor.from_numpy(x_np, requires_grad=True)
+        y = Tensor.from_numpy(y_idx.astype(np.float32), requires_grad=False)
 
         opt.zero_grad()
-        h = relu(x.conv2d(w1, b1))
-        h = h.maxpool2d(2)
-        h_shape = h.shape()
-        flat_size = h_shape[1] * h_shape[2] * h_shape[3]
-        h_flat = h.reshape([h_shape[0], flat_size])
-        logits = h_flat.matmul(w2) + b2
-        loss = cross_entropy_logits(logits, y)
+        logits = model(x)
+        loss = loss_fn(logits, y)
         loss.backward()
         opt.step()
         if step % 50 == 0:

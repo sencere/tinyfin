@@ -11,6 +11,7 @@ except Exception:
     _spec.loader.exec_module(_tf)
 
 Tensor = _tf.Tensor
+cross_entropy_logits = _tf.cross_entropy_logits if hasattr(_tf, "cross_entropy_logits") else None
 
 
 class Parameter:
@@ -122,6 +123,59 @@ class Linear(Module):
         return self.forward(x)
 
 
+class Embedding(Module):
+    def __init__(self, num_embeddings, embedding_dim):
+        super().__init__()
+        self.num_embeddings = int(num_embeddings)
+        self.embedding_dim = int(embedding_dim)
+        weight = Tensor.xavier_uniform([self.num_embeddings, self.embedding_dim], requires_grad=True)
+        self.register_parameter("weight", Parameter(weight))
+
+    def forward(self, indices):
+        if not isinstance(indices, Tensor):
+            raise TypeError(f"Embedding expects Tensor indices, got {type(indices)}")
+        w = self.weight.tensor
+        if hasattr(w, "get_device") and hasattr(indices, "get_device"):
+            if w.get_device() != indices.get_device():
+                raise ValueError("Embedding device mismatch between weight and indices")
+        return w.embedding(indices)
+
+    def __call__(self, indices):
+        return self.forward(indices)
+
+
+class Flatten(Module):
+    def __init__(self, start_dim=1):
+        super().__init__()
+        self.start_dim = int(start_dim)
+
+    def forward(self, x):
+        shape = x.shape()
+        if self.start_dim != 1:
+            raise ValueError("Flatten supports start_dim=1 only")
+        if len(shape) <= 1:
+            return x
+        flat = 1
+        for d in shape[1:]:
+            flat *= d
+        return x.reshape([shape[0], flat])
+
+    def __call__(self, x):
+        return self.forward(x)
+
+
+class MaxPool2d(Module):
+    def __init__(self, kernel_size: int):
+        super().__init__()
+        self.kernel_size = int(kernel_size)
+
+    def forward(self, x):
+        return x.maxpool2d(self.kernel_size)
+
+    def __call__(self, x):
+        return self.forward(x)
+
+
 class Conv2d(Module):
     def __init__(self, in_channels, out_channels, kernel_size, bias=True):
         super().__init__()
@@ -163,6 +217,36 @@ class Conv2d(Module):
 class ReLU(Module):
     def __call__(self, x):
         return x.relu()
+
+
+class MLP(Module):
+    def __init__(self, in_features, hidden_sizes, out_features, activation=ReLU):
+        super().__init__()
+        sizes = [int(in_features)] + [int(s) for s in hidden_sizes] + [int(out_features)]
+        layers = []
+        for i in range(len(sizes) - 1):
+            layers.append(Linear(sizes[i], sizes[i + 1]))
+            if i < len(sizes) - 2:
+                layers.append(activation() if isinstance(activation, type) else activation)
+        self.net = Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x)
+
+    def __call__(self, x):
+        return self.forward(x)
+
+
+class CrossEntropyLoss(Module):
+    def __init__(self, weight=None, reduction="mean"):
+        super().__init__()
+        self.weight = weight
+        self.reduction = reduction
+
+    def __call__(self, logits, target):
+        if cross_entropy_logits is None:
+            raise RuntimeError("cross_entropy_logits not available")
+        return cross_entropy_logits(logits, target, weight=self.weight, reduction=self.reduction)
 
 
 class Dropout(Module):

@@ -20,9 +20,7 @@ def main():
     rng = np.random.default_rng(0)
 
     def param(shape, scale=0.02):
-        t = Tensor.new(list(shape), requires_grad=True)
-        t.numpy_view()[:] = rng.standard_normal(shape, dtype=np.float32) * scale
-        return t
+        return Tensor.from_numpy(rng.standard_normal(shape, dtype=np.float32) * scale, requires_grad=True)
 
     # Token mixing + feedforward
     w_m1 = param((dim, dim))
@@ -39,8 +37,7 @@ def main():
 
     for step in range(50):
         opt.zero_grad()
-        x = Tensor.new([batch * seq, dim], requires_grad=True)
-        x.numpy_view()[:] = rng.standard_normal((batch * seq, dim), dtype=np.float32)
+        x = Tensor.from_numpy(rng.standard_normal((batch * seq, dim), dtype=np.float32), requires_grad=True)
 
         # token mixing (two linear layers with residual)
         h = relu(x.matmul(w_m1) + b_m1)
@@ -51,8 +48,10 @@ def main():
         out = ff.matmul(w_ff2) + b_ff2
 
         # dummy targets as class indices
-        targets = Tensor.new([batch * seq], requires_grad=False)
-        targets.numpy_view()[:] = rng.integers(0, dim, size=(batch * seq,), dtype=np.int64).astype(np.float32)
+        targets = Tensor.from_numpy(
+            rng.integers(0, dim, size=(batch * seq,), dtype=np.int64).astype(np.float32),
+            requires_grad=False,
+        )
         loss = cross_entropy_logits(out, targets)
         loss.backward()
         opt.step()
