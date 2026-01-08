@@ -91,7 +91,8 @@ def main():
             y_idx = rng.integers(0, out_dim, size=batch_size)
 
         x = Tensor.new([batch_size, in_dim], requires_grad=True); x.numpy_view()[:] = x_np
-        y = one_hot(y_idx, out_dim)
+        y = Tensor.new([batch_size], requires_grad=False)
+        y.numpy_view()[:] = y_idx.astype(np.float32)
 
         opt.zero_grad()
         h = relu(x.matmul(w1) + b1)
@@ -107,7 +108,7 @@ def main():
 
         if step % 50 == 0:
             acc = correct / total
-            print(f"step {step} loss={loss.to_numpy().mean():.4f} acc={acc*100:.2f}%")
+            print(f"[train] epoch=0 step={step} loss={loss.to_numpy().mean():.6f} acc={acc*100:.2f}%")
 
 
 if __name__ == "__main__":

@@ -12,9 +12,9 @@ def main():
     np.random.seed(42)
     batch, in_dim, hidden, out_dim = 64, 32, 64, 10
     x = Tensor.new([batch, in_dim], requires_grad=True)
-    y = Tensor.new([batch, out_dim], requires_grad=False)
+    y = Tensor.new([batch], requires_grad=False)
     x.numpy_view()[:] = np.random.randn(batch, in_dim).astype(np.float32)
-    y.numpy_view()[:] = np.random.randn(batch, out_dim).astype(np.float32)
+    y.numpy_view()[:] = np.random.randint(0, out_dim, size=batch).astype(np.float32)
 
     w1 = Tensor.new([in_dim, hidden], requires_grad=True)
     b1 = Tensor.new([hidden], requires_grad=True)
@@ -37,7 +37,7 @@ def main():
         loss.backward()
         opt.step()
         if step % 2 == 0:
-            print(f"step {step}: loss={loss.to_numpy().mean():.4f}")
+            print(f"[train] epoch=0 step={step} loss={loss.to_numpy().mean():.6f}")
 
     print("Done. Try adjusting batch/hidden sizes for quick perf checks.")
 

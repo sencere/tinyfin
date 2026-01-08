@@ -14,7 +14,6 @@ def main():
     y.numpy_view()[:] = np.array([3.0, 4.0], dtype=np.float32)
 
     z = (x * y).sum()
-    z.backward()
 
     out_path = "graph.dot"
     export_graph(z, out_path)

@@ -82,7 +82,8 @@ def main():
             x_np = rng.standard_normal((batch_size, 3, 32, 32), dtype=np.float32)
             y_idx = rng.integers(0, num_classes, size=batch_size)
         x = Tensor.new([batch_size, 3, 32, 32], requires_grad=True); x.numpy_view()[:] = x_np
-        y = one_hot(y_idx, num_classes)
+        y = Tensor.new([batch_size], requires_grad=False)
+        y.numpy_view()[:] = y_idx.astype(np.float32)
 
         opt.zero_grad()
         h = relu(x.conv2d(w1, b1))
@@ -99,7 +100,7 @@ def main():
             correct += (preds == y_idx).sum()
             total += len(y_idx)
             acc = correct / total
-            print(f"step {step} loss={loss.to_numpy().mean():.4f} acc={acc*100:.2f}%")
+            print(f"[train] epoch=0 step={step} loss={loss.to_numpy().mean():.6f} acc={acc*100:.2f}%")
 
 
 if __name__ == "__main__":

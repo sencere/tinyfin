@@ -50,14 +50,14 @@ def main():
         ff = relu(x_mixed.matmul(w_ff1) + b_ff1)
         out = ff.matmul(w_ff2) + b_ff2
 
-        # dummy targets (same shape)
-        targets = Tensor.new([batch * seq, dim], requires_grad=False)
-        targets.numpy_view()[:] = rng.standard_normal((batch * seq, dim), dtype=np.float32)
+        # dummy targets as class indices
+        targets = Tensor.new([batch * seq], requires_grad=False)
+        targets.numpy_view()[:] = rng.integers(0, dim, size=(batch * seq,), dtype=np.int64).astype(np.float32)
         loss = cross_entropy_logits(out, targets)
         loss.backward()
         opt.step()
         if step % 10 == 0:
-            print(f"[backend={backend}] step {step} loss={loss.to_numpy().mean():.4f}")
+            print(f"[train] epoch=0 step={step} loss={loss.to_numpy().mean():.6f} backend={backend}")
 
 
 if __name__ == "__main__":
