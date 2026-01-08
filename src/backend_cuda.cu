@@ -112,6 +112,9 @@ static Tensor *cuda_matmul(Tensor *a, Tensor *b) {
     size_t bytes_b = (size_t)b->size * sizeof(float);
     size_t bytes_c = (size_t)M * (size_t)N * sizeof(float);
 
+    dim3 block(16, 16);
+    dim3 grid((N + block.x - 1) / block.x, (M + block.y - 1) / block.y);
+
     float *dA = NULL, *dB = NULL, *dC = NULL;
     if (!cuda_ok(cudaMalloc((void **)&dA, bytes_a), "cudaMalloc A")) goto fail;
     if (!cuda_ok(cudaMalloc((void **)&dB, bytes_b), "cudaMalloc B")) goto fail;
@@ -120,8 +123,6 @@ static Tensor *cuda_matmul(Tensor *a, Tensor *b) {
     if (!cuda_ok(cudaMemcpy(dA, a->data, bytes_a, cudaMemcpyHostToDevice), "cudaMemcpy A")) goto fail;
     if (!cuda_ok(cudaMemcpy(dB, b->data, bytes_b, cudaMemcpyHostToDevice), "cudaMemcpy B")) goto fail;
 
-    dim3 block(16, 16);
-    dim3 grid((N + block.x - 1) / block.x, (M + block.y - 1) / block.y);
     matmul_kernel<<<grid, block>>>(dA, dB, dC, M, N, K,
                                    a->strides[0], a->strides[1],
                                    b->strides[0], b->strides[1],
@@ -216,7 +217,7 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
     Tensor *out = tensor_new(out_ndim, out_shape);
     if (!out) return NULL;
     out->requires_grad = (a->requires_grad || b->requires_grad);
-    out->dtype = DTYPE_FLOAT32;
+    out->dtype = static_cast<decltype(out->dtype)>(DTYPE_FLOAT32);
     out->device = DEVICE_GPU;
 
     /* build broadcast-aware strides */
@@ -232,6 +233,8 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
 
     size_t total = (size_t)out->size;
     size_t bytes = total * sizeof(float);
+    int threads = 256;
+    int blocks = (int)((total + threads - 1) / threads);
     float *dA = NULL, *dB = NULL, *dOut = NULL;
     int *dShape = NULL, *dStrideA = NULL, *dStrideB = NULL;
 
@@ -248,8 +251,6 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
     if (!cuda_ok(cudaMemcpy(dStrideA, stride_a, sizeof(int) * (size_t)out_ndim, cudaMemcpyHostToDevice), "cudaMemcpy strideA")) goto fail;
     if (!cuda_ok(cudaMemcpy(dStrideB, stride_b, sizeof(int) * (size_t)out_ndim, cudaMemcpyHostToDevice), "cudaMemcpy strideB")) goto fail;
 
-    int threads = 256;
-    int blocks = (int)((total + threads - 1) / threads);
     add_kernel_bcast<<<blocks, threads>>>(dA, dB, dOut, dShape, dStrideA, dStrideB, out_ndim, (int)total, is_mul);
     if (!cuda_ok(cudaGetLastError(), "add/mul kernel launch")) goto fail;
 
@@ -334,12 +335,16 @@ static Tensor *cuda_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     Tensor *out = tensor_new(4, out_shape);
     if (!out) return NULL;
     out->requires_grad = 0;
-    out->dtype = DTYPE_FLOAT32;
+    out->dtype = static_cast<decltype(out->dtype)>(DTYPE_FLOAT32);
     out->device = DEVICE_GPU;
 
     size_t bytes_x = (size_t)input->size * sizeof(float);
     size_t bytes_w = (size_t)weight->size * sizeof(float);
     size_t bytes_out = (size_t)out->size * sizeof(float);
+
+    int total = N * C_out * Hout * Wout;
+    int threads = 128;
+    int blocks = (total + threads - 1) / threads;
 
     float *dX = NULL, *dW = NULL, *dB = NULL, *dOut = NULL;
     if (!cuda_ok(cudaMalloc((void **)&dX, bytes_x), "cudaMalloc conv2d X")) goto fail;
@@ -354,9 +359,6 @@ static Tensor *cuda_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     }
 
     /* naive direct conv: one thread per output element */
-    int total = N * C_out * Hout * Wout;
-    int threads = 128;
-    int blocks = (total + threads - 1) / threads;
     conv2d_kernel<<<blocks, threads>>>(dX, dW, dB, dOut, N, C_in, H, W, C_out, KH, KW, Hout, Wout, total);
     if (!cuda_ok(cudaGetLastError(), "conv2d kernel launch")) goto fail;
     if (!cuda_ok(cudaMemcpy(out->data, dOut, bytes_out, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d out")) goto fail;
