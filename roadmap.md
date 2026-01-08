@@ -32,9 +32,11 @@
 - Docs/tutorials, contributor guide, release process, platform/Python support matrix.
 - Mixed precision: stubbed autocast in Python; real backend support TBD.
 
-## Milestone 8 — Near-Term Sequencing
-- API polish (errors/type hints), DataLoader workers/prefetch plan, callbacks/hooks, dataset/transform ecosystem.
+## Milestone 8 — Near-Term Sequencing (Done)
+- API polish (errors/type hints), DataLoader workers + prefetch, callbacks/hooks, dataset/transform ecosystem.
 - Versioned checkpoints (tensor + optimizer/scheduler metadata).
+- RNN layers: vanilla RNN, LSTM, and minGRU (core ops + Python API), with examples and basic tests.
+- Coverage checklist: CNNs, MLPs, and RNNs are all first-class (docs + examples + tests).
 
 ## Milestone 9 — Engine Expansion & Docs
 - Backends: bring CUDA to parity (conv2d backward, mixed precision, device residency); prototype real OpenGL/Vulkan kernels.

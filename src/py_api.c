@@ -25,6 +25,7 @@
 #include "ops_batchnorm.h"
 #include "ops_concat.h"
 #include "ops_pad.h"
+#include "ops_slice.h"
 #include "profiler.h"
 #include "backend.h"
 #include <stdlib.h>
@@ -152,6 +153,7 @@ Tensor *py_permute(Tensor *x, int ndim, const int *order) { return tensor_permut
 Tensor *py_concat(Tensor *a, Tensor *b, int axis) { return tensor_concat(a, b, axis); }
 Tensor *py_stack(Tensor *a, Tensor *b, int axis) { return tensor_stack(a, b, axis); }
 Tensor *py_pad2d(Tensor *x, int pad_h, int pad_w, float value) { return tensor_pad2d(x, pad_h, pad_w, value); }
+Tensor *py_slice(Tensor *x, int axis, int start, int end) { return tensor_slice(x, axis, start, end); }
 
 char *py_profiler_get_summary() { return profiler_get_summary(); }
 

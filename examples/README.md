@@ -9,6 +9,9 @@ Use the examples to see tinyfin without external frameworks. Run from repo root 
 - `transformer_tiny.py` — transformer-inspired token-mixing/FFN block on random data (no external deps).  
   `python examples/transformer_tiny.py`
 
+- `rnn_tiny.py` — minimal LSTM sequence example with a tiny training loop.  
+  `python examples/rnn_tiny.py`
+
 - `cuda_matmul.py` — CUDA matmul demo if built with `ENABLE_CUDA=1` (falls back to CPU).  
   `TINYFIN_BACKEND=cuda python examples/cuda_matmul.py`
 

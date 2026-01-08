@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import random
+import threading
+import queue
 from typing import Callable, Iterable, Iterator, List, Optional, Sequence, Tuple, Union, Any
 import os
 import urllib.request
@@ -37,6 +39,119 @@ class Compose(Transform):
         for t in self.transforms:
             sample = t(sample)
         return sample
+
+
+class Lambda(Transform):
+    def __init__(self, fn: Callable):
+        self.fn = fn
+
+    def __call__(self, sample):
+        return self.fn(sample)
+
+
+def _tensor_from_array(arr: np.ndarray, like: Optional[Tensor] = None) -> Tensor:
+    t = Tensor.new(list(arr.shape), requires_grad=False)
+    t.numpy_view()[:] = arr
+    if like is not None and hasattr(like, "get_device"):
+        try:
+            t.set_device(like.get_device())
+        except Exception:
+            pass
+    return t
+
+
+class Normalize(Transform):
+    def __init__(self, mean, std):
+        self.mean = np.array(mean, dtype=np.float32)
+        self.std = np.array(std, dtype=np.float32)
+
+    def __call__(self, sample):
+        if isinstance(sample, Tensor):
+            arr = sample.to_numpy().astype(np.float32)
+            out = (arr - self.mean) / self.std
+            return _tensor_from_array(out, like=sample)
+        if isinstance(sample, np.ndarray):
+            return (sample.astype(np.float32) - self.mean) / self.std
+        return sample
+
+
+class RandomHorizontalFlip(Transform):
+    def __init__(self, p: float = 0.5):
+        self.p = float(p)
+
+    def __call__(self, sample):
+        if random.random() >= self.p:
+            return sample
+        if isinstance(sample, Tensor):
+            arr = sample.to_numpy()
+            flipped = _flip_array(arr)
+            return _tensor_from_array(flipped, like=sample)
+        if isinstance(sample, np.ndarray):
+            return _flip_array(sample)
+        return sample
+
+
+def _flip_array(arr: np.ndarray) -> np.ndarray:
+    if arr.ndim == 2:
+        return arr[:, ::-1]
+    if arr.ndim == 3:
+        return arr[:, :, ::-1]
+    if arr.ndim == 4:
+        return arr[:, :, :, ::-1]
+    raise ValueError(f"unsupported array ndim for flip: {arr.ndim}")
+
+
+class RandomCrop(Transform):
+    def __init__(self, size, padding: int = 0):
+        if isinstance(size, int):
+            self.size = (size, size)
+        else:
+            self.size = tuple(size)
+        self.padding = int(padding)
+
+    def __call__(self, sample):
+        if isinstance(sample, Tensor):
+            arr = sample.to_numpy()
+            cropped = _crop_array(arr, self.size, self.padding)
+            return _tensor_from_array(cropped, like=sample)
+        if isinstance(sample, np.ndarray):
+            return _crop_array(sample, self.size, self.padding)
+        return sample
+
+
+def _crop_array(arr: np.ndarray, size, padding: int) -> np.ndarray:
+    if padding > 0:
+        if arr.ndim == 2:
+            arr = np.pad(arr, ((padding, padding), (padding, padding)), mode="constant")
+        elif arr.ndim == 3:
+            arr = np.pad(arr, ((0, 0), (padding, padding), (padding, padding)), mode="constant")
+        elif arr.ndim == 4:
+            arr = np.pad(arr, ((0, 0), (0, 0), (padding, padding), (padding, padding)), mode="constant")
+        else:
+            raise ValueError(f"unsupported array ndim for crop: {arr.ndim}")
+    h, w = size
+    if arr.ndim == 2:
+        H, W = arr.shape
+        if H < h or W < w:
+            raise ValueError("crop size larger than input")
+        top = random.randint(0, H - h)
+        left = random.randint(0, W - w)
+        return arr[top:top + h, left:left + w]
+    if arr.ndim == 3:
+        C, H, W = arr.shape
+        if H < h or W < w:
+            raise ValueError("crop size larger than input")
+        top = random.randint(0, H - h)
+        left = random.randint(0, W - w)
+        return arr[:, top:top + h, left:left + w]
+    if arr.ndim == 4:
+        N, C, H, W = arr.shape
+        if H < h or W < w:
+            raise ValueError("crop size larger than input")
+        top = random.randint(0, H - h)
+        left = random.randint(0, W - w)
+        return arr[:, :, top:top + h, left:left + w]
+    raise ValueError(f"unsupported array ndim for crop: {arr.ndim}")
 
 
 class TensorDataset(Dataset):
@@ -100,6 +215,8 @@ class DataLoader:
         drop_last: bool = False,
         seed: Optional[int] = None,
         collate_fn: Callable[[List[Any]], Any] = default_collate,
+        num_workers: int = 0,
+        prefetch_batches: int = 0,
     ):
         self.dataset = dataset
         self.batch_size = int(batch_size)
@@ -107,20 +224,73 @@ class DataLoader:
         self.drop_last = bool(drop_last)
         self.seed = seed
         self.collate_fn = collate_fn
+        self.num_workers = int(num_workers)
+        self.prefetch_batches = int(prefetch_batches)
 
     def __iter__(self) -> Iterator[Any]:
         indices = list(range(len(self.dataset)))
         rng = random.Random(self.seed)
         if self.shuffle:
             rng.shuffle(indices)
-        batch: List[Any] = []
+
+        batches: List[List[int]] = []
+        batch_idxs: List[int] = []
         for idx in indices:
-            batch.append(self.dataset[idx])
-            if len(batch) == self.batch_size:
-                yield self.collate_fn(batch)
-                batch = []
-        if batch and not self.drop_last:
-            yield self.collate_fn(batch)
+            batch_idxs.append(idx)
+            if len(batch_idxs) == self.batch_size:
+                batches.append(batch_idxs)
+                batch_idxs = []
+        if batch_idxs and not self.drop_last:
+            batches.append(batch_idxs)
+
+        if self.num_workers <= 1 and self.prefetch_batches <= 0:
+            for b in batches:
+                items = [self.dataset[i] for i in b]
+                yield self.collate_fn(items)
+            return
+
+        n_workers = max(1, self.num_workers)
+        work_q: queue.Queue = queue.Queue()
+        max_prefetch = self.prefetch_batches if self.prefetch_batches > 0 else 0
+        result_q: queue.Queue = queue.Queue(maxsize=max_prefetch)
+
+        for b_id, b in enumerate(batches):
+            work_q.put((b_id, b))
+        for _ in range(n_workers):
+            work_q.put(None)
+
+        def worker():
+            while True:
+                item = work_q.get()
+                if item is None:
+                    break
+                b_id, b = item
+                try:
+                    items = [self.dataset[i] for i in b]
+                    batch = self.collate_fn(items)
+                    result_q.put((b_id, batch, None))
+                except Exception as exc:
+                    result_q.put((b_id, None, exc))
+
+        threads = []
+        for _ in range(n_workers):
+            t = threading.Thread(target=worker, daemon=True)
+            t.start()
+            threads.append(t)
+
+        pending = {}
+        next_id = 0
+        for _ in range(len(batches)):
+            b_id, batch, err = result_q.get()
+            if err is not None:
+                raise err
+            pending[b_id] = batch
+            while next_id in pending:
+                yield pending.pop(next_id)
+                next_id += 1
+
+        for t in threads:
+            t.join()
 
     def __len__(self) -> int:
         n = len(self.dataset)

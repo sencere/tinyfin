@@ -189,6 +189,10 @@ lib.py_pad2d = lib.py_pad2d if hasattr(lib, 'py_pad2d') else None
 if lib.py_pad2d:
     lib.py_pad2d.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_float)
     lib.py_pad2d.restype = ctypes.c_void_p
+lib.py_slice = lib.py_slice if hasattr(lib, 'py_slice') else None
+if lib.py_slice:
+    lib.py_slice.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int)
+    lib.py_slice.restype = ctypes.c_void_p
 lib.py_avgpool2d = lib.py_avgpool2d if hasattr(lib, 'py_avgpool2d') else None
 if lib.py_avgpool2d:
     lib.py_avgpool2d.argtypes = (ctypes.c_void_p, ctypes.c_int)
@@ -846,6 +850,26 @@ class Tensor:
         if not p:
             raise ValueError("stack failed; ensure shapes are compatible")
         return Tensor(p)
+
+    def slice(self, axis, start, end):
+        if not lib.py_slice: raise RuntimeError('slice not available in C API')
+        if not isinstance(axis, int):
+            raise TypeError("slice axis must be int")
+        if not isinstance(start, int) or not isinstance(end, int):
+            raise TypeError("slice start/end must be int")
+        ndim = lib.py_tensor_ndim(self._ptr)
+        if axis < -ndim or axis >= ndim:
+            raise ValueError(f"slice axis {axis} out of range for ndim {ndim}")
+        axis = axis % ndim
+        p = lib.py_slice(self._ptr, int(axis), int(start), int(end))
+        if not p:
+            raise ValueError("slice failed; check bounds")
+        return Tensor(p)
+
+    def select(self, axis, index):
+        if not isinstance(index, int):
+            raise TypeError("select index must be int")
+        return self.slice(axis, index, index + 1).squeeze(axis)
 
     def split(self, axis=0, parts=2):
         """Simple split into equal parts along axis using numpy copy."""

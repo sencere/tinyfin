@@ -12,8 +12,10 @@ class Recorder(Callback):
     def __init__(self):
         self.batch_starts = 0
         self.batch_ends = 0
-        self.epochs = 0
-    def on_epoch_start(self, epoch): self.epochs += 1
+        self.epochs_start = 0
+        self.epochs_end = 0
+    def on_epoch_start(self, epoch): self.epochs_start += 1
+    def on_epoch_end(self, epoch): self.epochs_end += 1
     def on_batch_start(self, step, batch): self.batch_starts += 1
     def on_batch_end(self, step, loss): self.batch_ends += 1
 
@@ -37,12 +39,12 @@ rec = Recorder()
 opt = SGDOpt([x], lr=0.0)  # lr not used since model is identity; just to satisfy API
 logs = []
 trainer = Trainer(model, loss_fn, opt, callbacks=[rec, LoggingCallback(log_every=1, sink=logs.append)])
-trainer.callbacks.on_epoch_start(0)
 trainer.train_epoch(dl)
 
 assert rec.batch_starts == len(dl)
 assert rec.batch_ends == len(dl)
-assert rec.epochs == 1
+assert rec.epochs_start == 1
+assert rec.epochs_end == 1
 assert len(logs) == len(dl)
 
 print("[test_trainer_callbacks.py] PASS")

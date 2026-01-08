@@ -40,9 +40,10 @@ class Trainer:
         self.scheduler = scheduler
         self.accumulate_steps = max(1, int(accumulate_steps))
 
-    def train_epoch(self, dataloader) -> float:
+    def train_epoch(self, dataloader, epoch: int = 0) -> float:
         last_loss = 0.0
         grad_acc_counter = 0
+        self.callbacks.on_epoch_start(epoch)
         for step, batch in enumerate(dataloader):
             self.callbacks.on_batch_start(step, batch)
             if isinstance(batch, (list, tuple)) and len(batch) >= 2:
@@ -62,6 +63,8 @@ class Trainer:
                     self.scheduler.step()
             self.callbacks.on_batch_end(step, loss)
             last_loss = float(loss.to_numpy().item()) if hasattr(loss, "to_numpy") else last_loss
+
+        self.callbacks.on_epoch_end(epoch)
 
         # flush remaining grads if dataloader length not divisible by accumulate_steps
         if grad_acc_counter > 0:
