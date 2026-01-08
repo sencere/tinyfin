@@ -63,6 +63,7 @@ class Trainer:
                     self.scheduler.step()
             self.callbacks.on_batch_end(step, loss)
             last_loss = float(loss.to_numpy().item()) if hasattr(loss, "to_numpy") else last_loss
+            print(f"[train] epoch={epoch} step={step} loss={last_loss:.6f}")
 
         self.callbacks.on_epoch_end(epoch)
 

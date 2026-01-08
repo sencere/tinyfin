@@ -31,7 +31,11 @@ class SimpleCNN(Module):
     def forward(self, x):
         y = self.conv(x)
         y = self.relu(y)
-        y = y.reshape([y.shape()[0], -1])
+        y_shape = y.shape()
+        flat = 1
+        for d in y_shape[1:]:
+            flat *= d
+        y = y.reshape([y_shape[0], flat])
         return self.fc(y)
 
 
@@ -73,7 +77,7 @@ def make_loader(batch_size=16, use_real=False, device="cpu"):
 
 def main():
     backend = os.environ.get("TINYFIN_BACKEND", "cpu")
-    backend_set(backend.encode() if isinstance(backend, str) else backend)
+    backend_set(backend)
     model = SimpleCNN()
     opt = SGDOpt(model.parameters(), lr=0.01, momentum=0.9)
     loader = make_loader(device=backend)
@@ -86,10 +90,20 @@ def main():
         for i, cls in enumerate(target.to_numpy().astype(int).tolist()):
             oh_view[i, cls] = 1.0
         diff = pred - one_hot
-        return (diff * diff).mean()
+        sq = diff * diff
+        total = sq.sum()
+        count = 1
+        for d in sq.shape():
+            count *= d
+        denom = Tensor.new([1], requires_grad=False)
+        if hasattr(total, "get_device") and hasattr(denom, "set_device"):
+            denom.set_device(total.get_device())
+        denom.numpy_view()[0] = float(count)
+        return total / denom
 
-    trainer = Trainer(model, opt, loss_fn=loss_fn)
-    trainer.fit(loader, epochs=1)
+    trainer = Trainer(model, loss_fn=loss_fn, optimizer=opt)
+    for epoch in range(1):
+        trainer.train_epoch(loader, epoch=epoch)
     for p in model.parameters():
         assert_finite(p)
     print(f"[backend_mnist_cnn] done on backend={backend}")

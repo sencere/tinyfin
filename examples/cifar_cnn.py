@@ -52,7 +52,7 @@ def maybe_load_cifar(root="data/cifar-10-batches-bin"):
 
 def main():
     backend = os.environ.get("TINYFIN_BACKEND", "cpu")
-    backend_set(backend.encode() if isinstance(backend, str) else backend)
+    backend_set(backend)
     batch_size = 32
     steps = 200
     num_classes = 10

@@ -1307,7 +1307,11 @@ def backend_set(name: str) -> bool:
     """Attempt to switch backend by name. Returns True on success."""
     if not lib.py_backend_set_by_name:
         return False
-    res = lib.py_backend_set_by_name(name.encode())
+    if isinstance(name, (bytes, bytearray)):
+        name_bytes = bytes(name)
+    else:
+        name_bytes = str(name).encode()
+    res = lib.py_backend_set_by_name(name_bytes)
     return bool(res)
 
 # Mixed precision (stub): gate for future fp16/bfloat16 autocast per backend.

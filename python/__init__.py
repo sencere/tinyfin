@@ -1,6 +1,6 @@
 from .tinyfin import Tensor, load_shared_lib, no_grad, Profiler, assert_finite, bce_loss, cross_entropy_logits, sparse_categorical_crossentropy, categorical_crossentropy, relu, vjp, jvp, hvp, set_retain_graph_default, get_retain_graph_default, export_graph
 from .tinyfin import SGDOpt, AdamOpt, RMSPropOpt
-from .nn import Parameter, Module, Sequential, BatchNorm, Dropout, Linear, ReLU, RNNCell, RNN, LSTMCell, LSTM, MinGRUCell, MinGRU
+from .nn import Parameter, Module, Sequential, BatchNorm, Dropout, Linear, Conv2d, ReLU, RNNCell, RNN, LSTMCell, LSTM, MinGRUCell, MinGRU
 from .data import Dataset, Transform, Compose, Lambda, Normalize, RandomHorizontalFlip, RandomCrop, TensorDataset, DataLoader
 from .training import Callback, CallbackList, Trainer
 from .callbacks import LoggingCallback, CheckpointCallback
@@ -23,6 +23,7 @@ __all__ = [
     "BatchNorm",
     "Dropout",
     "Linear",
+    "Conv2d",
     "ReLU",
     "RNNCell",
     "RNN",

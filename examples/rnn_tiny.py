@@ -32,4 +32,4 @@ for step in range(5):
     opt.step()
     opt.zero_grad()
 
-    print(f"step {step}: loss={float(loss.to_numpy().item()):.4f}")
+    print(f"[train] epoch=0 step={step} loss={float(loss.to_numpy().item()):.6f}")

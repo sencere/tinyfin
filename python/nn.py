@@ -1,10 +1,15 @@
 import importlib.util
 import os
 import ctypes
-_tf_path = os.path.join(os.path.dirname(__file__), 'tinyfin.py')
-_spec = importlib.util.spec_from_file_location('tinyfin_core', _tf_path)
-_tf = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_tf)
+
+try:
+    import tinyfin as _tf
+except Exception:
+    _tf_path = os.path.join(os.path.dirname(__file__), 'tinyfin.py')
+    _spec = importlib.util.spec_from_file_location('tinyfin', _tf_path)
+    _tf = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_tf)
+
 Tensor = _tf.Tensor
 
 
@@ -55,6 +60,11 @@ class Module:
         self._training = False
         for m in self.modules():
             m.eval()
+
+    def __call__(self, *args, **kwargs):
+        if hasattr(self, "forward"):
+            return self.forward(*args, **kwargs)
+        raise TypeError(f"{self.__class__.__name__} has no forward method")
 
 
 class Sequential(Module):
@@ -107,6 +117,44 @@ class Linear(Module):
             if hasattr(t, "get_device") and t.get_device() != x_dev:
                 raise ValueError("linear parameter device mismatch with input")
         return x.matmul(W) + b
+
+    def __call__(self, x):
+        return self.forward(x)
+
+
+class Conv2d(Module):
+    def __init__(self, in_channels, out_channels, kernel_size, bias=True):
+        super().__init__()
+        if isinstance(kernel_size, (list, tuple)):
+            if len(kernel_size) != 2:
+                raise ValueError("kernel_size must be int or (kH, kW)")
+            k_h, k_w = int(kernel_size[0]), int(kernel_size[1])
+        else:
+            k_h = k_w = int(kernel_size)
+        if k_h <= 0 or k_w <= 0:
+            raise ValueError("kernel_size must be positive")
+        self.in_channels = int(in_channels)
+        self.out_channels = int(out_channels)
+        self.kernel_size = (k_h, k_w)
+        self.bias = bool(bias)
+
+        w = Tensor.xavier_uniform([self.out_channels, self.in_channels, k_h, k_w], requires_grad=True)
+        self.register_parameter("weight", Parameter(w))
+        if self.bias:
+            b = Tensor.new([self.out_channels], requires_grad=True)
+            b.numpy_view()[:] = 0.0
+            self.register_parameter("bias", Parameter(b))
+        else:
+            self.bias = None
+
+    def forward(self, x):
+        W = self.weight.tensor
+        b = self.bias.tensor if isinstance(self.bias, Parameter) else None
+        x_dev = x.get_device() if hasattr(x, "get_device") else 0
+        for t in (W, b) if b is not None else (W,):
+            if hasattr(t, "get_device") and t.get_device() != x_dev:
+                raise ValueError("conv2d parameter device mismatch with input")
+        return x.conv2d(W, bias=b)
 
     def __call__(self, x):
         return self.forward(x)
@@ -261,7 +309,22 @@ def _sequence_from_tensor(x):
         return [x]
     if len(shape) == 3:
         steps = shape[0]
-        return [x.slice(0, i, i + 1).squeeze(0) for i in range(steps)]
+        try:
+            return [x.slice(0, i, i + 1).squeeze(0) for i in range(steps)]
+        except RuntimeError as exc:
+            if "slice not available" not in str(exc):
+                raise
+        x_np = x.to_numpy()
+        req_grad = x.requires_grad() if hasattr(x, "requires_grad") else False
+        dev = _device_of(x)
+        seq = []
+        for i in range(steps):
+            t = Tensor.new([shape[1], shape[2]], requires_grad=req_grad)
+            if dev != 0 and hasattr(t, "set_device"):
+                t.set_device(dev)
+            t.numpy_view()[:] = x_np[i]
+            seq.append(t)
+        return seq
     raise ValueError(f"expected [B,I] or [T,B,I] input, got shape {shape}")
 
 

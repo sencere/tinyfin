@@ -15,7 +15,7 @@ def relu(x: Tensor) -> Tensor:
 
 def main():
     backend = os.environ.get("TINYFIN_BACKEND", "cpu")
-    backend_set(backend.encode() if isinstance(backend, str) else backend)
+    backend_set(backend)
     batch, seq, dim, hidden = 8, 16, 32, 64
     rng = np.random.default_rng(0)
 

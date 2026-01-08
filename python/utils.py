@@ -9,16 +9,35 @@ import numpy as np
 CHECKPOINT_MAGIC = "TINYFIN_CKPT"
 CHECKPOINT_VERSION = 1
 
-from .tinyfin import assert_finite as _assert_finite
 from .tinyfin import Profiler as _Profiler
 from .tinyfin import Tensor
 
 TensorLike = Union[Tensor, Iterable[Tensor]]
 
 
+def _unwrap_tensors(tensors: TensorLike) -> Iterable[Tensor]:
+    if isinstance(tensors, Tensor):
+        return [tensors]
+    if hasattr(tensors, "tensor") and hasattr(tensors.tensor, "_ptr"):
+        return [tensors.tensor]
+    if isinstance(tensors, Iterable) and not isinstance(tensors, (str, bytes)):
+        out = []
+        for t in tensors:
+            if isinstance(t, Tensor):
+                out.append(t)
+            elif hasattr(t, "tensor") and hasattr(t.tensor, "_ptr"):
+                out.append(t.tensor)
+            else:
+                raise TypeError(f"assert_finite expects Tensor or Parameter, got {type(t)}")
+        return out
+    raise TypeError(f"assert_finite expects Tensor or iterable of Tensors, got {type(tensors)}")
+
+
 def assert_finite(tensors: TensorLike, msg: Optional[str] = None) -> None:
     """Raise ValueError if any tensor contains NaN or Inf."""
-    _assert_finite(tensors, msg)
+    for t in _unwrap_tensors(tensors):
+        if t.has_nan_or_inf():
+            raise ValueError(msg or "NaN or Inf detected in tensor")
 
 
 Profiler = _Profiler

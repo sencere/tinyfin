@@ -61,7 +61,7 @@ def maybe_load_mnist(root="data/mnist"):
 
 def main():
     backend = os.environ.get("TINYFIN_BACKEND", "cpu")
-    backend_set(backend.encode() if isinstance(backend, str) else backend)
+    backend_set(backend)
     batch_size = 128
     hidden = 256
     in_dim = 28 * 28
