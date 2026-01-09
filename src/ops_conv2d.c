@@ -119,22 +119,40 @@ static void conv2d_bwd(AutogradNode *n) {
     }
 
     if (b && b->requires_grad) {
+        if (!b->grad) b->grad = tensor_zeros(b->ndim, b->shape);
+        if (b->grad) tensor_set_dtype(b->grad, b->dtype);
         for (int oc = 0; oc < C_out; oc++) {
-            float gb = 0.0f;
-            for (int n_i = 0; n_i < N; n_i++) {
-                for (int ho = 0; ho < Hout; ho++) {
-                    for (int wo = 0; wo < Wout; wo++) {
-                        size_t out_idx = ((size_t)n_i*C_out + oc)*Hout*Wout + ho*Wout + wo;
-                        gb += y->grad->data[out_idx];
+            if (b->dtype == DTYPE_FLOAT32) {
+                float gb = 0.0f;
+                for (int n_i = 0; n_i < N; n_i++) {
+                    for (int ho = 0; ho < Hout; ho++) {
+                        for (int wo = 0; wo < Wout; wo++) {
+                            size_t out_idx = ((size_t)n_i*C_out + oc)*Hout*Wout + ho*Wout + wo;
+                            gb += tensor_get_f32_at(y->grad, out_idx);
+                        }
                     }
                 }
+                float prev = tensor_get_f32_at(b->grad, oc);
+                tensor_set_f32_at(b->grad, oc, prev + gb);
+            } else {
+                double gb = 0.0;
+                for (int n_i = 0; n_i < N; n_i++) {
+                    for (int ho = 0; ho < Hout; ho++) {
+                        for (int wo = 0; wo < Wout; wo++) {
+                            size_t out_idx = ((size_t)n_i*C_out + oc)*Hout*Wout + ho*Wout + wo;
+                            gb += tensor_get_f64_at(y->grad, out_idx);
+                        }
+                    }
+                }
+                double prev = tensor_get_f64_at(b->grad, oc);
+                tensor_set_f64_at(b->grad, oc, prev + gb);
             }
-            b->grad->data[oc] += gb;
         }
     }
 }
 
 Tensor *tensor_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
+    if (!input || !weight) return NULL;
     if (input->ndim != 4 || weight->ndim != 4) return NULL;
     int N = input->shape[0];
     int C_in = input->shape[1];
@@ -146,9 +164,9 @@ Tensor *tensor_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     int Hout = H - KH + 1;
     int Wout = W - KW + 1;
 
-    /* Try backend (e.g., CUDA) first when tensors live on GPU. Backend conv2d
-       currently supports inference-only; if it returns NULL we fall back to CPU. */
-    if (input->device == DEVICE_GPU && weight->device == DEVICE_GPU) {
+    /* Try backend first for float32 inputs; if it returns NULL we fall back to CPU. */
+    if (input->dtype == DTYPE_FLOAT32 && weight->dtype == DTYPE_FLOAT32 &&
+        (!bias || bias->dtype == DTYPE_FLOAT32)) {
         Backend *bk = backend_get();
         if (bk && bk->conv2d) {
             Tensor *out = bk->conv2d(input, weight, bias);

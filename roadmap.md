@@ -3,9 +3,9 @@
 **Goal:** TinyTorch-like core: tensors + autograd + NN layers + optimizers + usable Python API.
 
 **Next up (one sprint):**
-- CUDA conv2d backward or scratch allocator (pick one primary).
-- Backend parity tests (CPU vs CUDA) for matmul/add/mul/conv2d.
-- Backend fallback/selection semantics documented + enforced in tests.
+- Scratch allocator follow-ups (size tuning, reuse instrumentation).
+- Backend parity tests: extend coverage beyond CUDA where available.
+- Backend residency: reduce host<->device copies for CUDA paths.
 
 ## Core Engine
 
@@ -48,13 +48,13 @@
 ## Acceleration
 
 ### Milestone 6 — Performance & Device
-- Backend registry (`TINYFIN_BACKEND`); CPU default. CUDA: matmul, broadcast add/mul, conv2d (inference, CPU backward). BLAS: matmul/conv2d. OpenGL/Vulkan stubs registered.
+- Backend registry (`TINYFIN_BACKEND`); CPU default. CUDA: matmul, broadcast add/mul, conv2d (backward on CUDA, host-resident tensors). BLAS: matmul/conv2d on CPU when selected. OpenGL/Vulkan stubs registered.
 - Scratch allocator to reduce temps; guarded in-place add/mul. Optional OpenMP matmul.
-- Next: CUDA conv2d backward + resident buffers; extend multithreading/vectorization.
+- Next: CUDA resident buffers; extend multithreading/vectorization.
 - Acceptance:
-  - [ ] Backend selection works via env + API with tests.
-  - [ ] CPU vs CUDA parity tests for matmul/add/mul/conv2d (fwd).
-  - [ ] Perf profiler runs on CPU + CUDA when built.
+  - [x] Backend selection works via env + API with tests.
+  - [x] CPU vs CUDA parity tests for matmul/add/mul/conv2d (fwd/bwd when available).
+  - [x] Perf profiler runs on CPU + CUDA when built.
 
 ### Milestone 7 — Hardening
 - Versioning/deprecation strategy, serialization format/validation, property-based tests, broader overflow/grad checks.
@@ -78,8 +78,8 @@
   - [x] RNN/LSTM/minGRU examples run and basic tests pass.
 
 ### Milestone 9 — Engine Expansion & Docs
-- Backends: bring CUDA to parity (conv2d backward, mixed precision, device residency); prototype real OpenGL/Vulkan kernels.
-- Contracts/tests: backend selection/fallback semantics; integration tests across CPU/CUDA/OpenGL/Vulkan.
+- Backends: bring CUDA to parity (mixed precision, device residency); prototype real OpenGL/Vulkan kernels.
+- Contracts/tests: backend selection/fallback semantics; integration tests across CPU/CUDA/OpenGL/Vulkan (extend coverage).
 - Examples: backend-aware demos (MNIST/CIFAR CNN, transformer/BERT-style, text gen, perf profiler).
 - Docs: backend/engine notes, mixed-precision guide, expanded API/how-to content.
 - Acceptance:
@@ -90,6 +90,8 @@
 ## Current Status
 - Autograd and NN stack stable; device/shape validation on core ops.
 - Backend selection works; CUDA/BLAS usable when built; GL/Vulkan stubs in place.
-- Tests cover schedulers, optimizer state, dataloader, callbacks, overflow/validation, backend selection, mixed-precision stub.
+- CUDA conv2d backward supported (host-resident tensors); BLAS dispatch works for CPU float32.
+- Tests cover schedulers, optimizer state, dataloader, callbacks, overflow/validation, backend selection, backend parity (CUDA), mixed-precision stub.
+- Perf profiler script validated on CPU and CUDA (when built).
 - Examples: MNIST/CIFAR/transformer, backend-aware CNN; perf profiler and CUDA demo available.
 - Ergonomics: `Tensor.from_numpy`, `Trainer.fit`, `MLP/Flatten/MaxPool2d`, `CrossEntropyLoss`, and dataset helpers (`TensorDataset/DataLoader.from_numpy`) to reduce example boilerplate.

@@ -201,12 +201,10 @@ static Tensor *tensor_matmul_cpu(Tensor *a, Tensor *b) {
 
 
 Tensor *tensor_matmul(Tensor *a, Tensor *b) {
-    /* If both tensors are on GPU and a backend provides matmul, dispatch. */
-    Backend *bk = NULL;
-    int dev_a = a ? a->device : 0;
-    int dev_b = b ? b->device : 0;
-    if (dev_a == DEVICE_GPU && dev_b == DEVICE_GPU) {
-        bk = backend_get();
+    if (!a || !b) return NULL;
+    /* If a backend provides matmul, let it decide whether to handle this op. */
+    if (a->dtype == DTYPE_FLOAT32 && b->dtype == DTYPE_FLOAT32) {
+        Backend *bk = backend_get();
         if (bk && bk->matmul) {
             Tensor *out = bk->matmul(a, b);
             if (out) return out;

@@ -30,6 +30,7 @@ def test_backend_cuda_fallback_for_basic_ops(op):
     finally:
         backend_set("cpu")
 
+
 def test_backend_cuda_conv2d_fallback():
     ok = backend_set("cuda")
     if not ok:
@@ -45,6 +46,69 @@ def test_backend_cuda_conv2d_fallback():
         np.testing.assert_allclose(y.to_numpy(), np.array([[[[4, 6],[10, 12]]]], dtype=np.float32))
     finally:
         backend_set("cpu")
+
+
+def test_backend_opengl_conv2d_bias_fallback():
+    ok = backend_set("opengl")
+    if not ok:
+        pytest.skip("opengl backend not registered (stub missing)")
+    try:
+        x = Tensor.new([1, 1, 3, 3], requires_grad=False)
+        w = Tensor.new([1, 1, 2, 2], requires_grad=False)
+        b = Tensor.new([1], requires_grad=False)
+        x.numpy_view()[:] = np.arange(9, dtype=np.float32).reshape(1, 1, 3, 3)
+        w.numpy_view()[:] = np.array([[[[1, 0], [0, 1]]]], dtype=np.float32)
+        b.numpy_view()[:] = np.array([0.5], dtype=np.float32)
+        x.set_device(1); w.set_device(1); b.set_device(1)
+        y = x.conv2d(w, bias=b)
+        assert y.shape() == [1, 1, 2, 2]
+        np.testing.assert_allclose(
+            y.to_numpy(),
+            np.array([[[[6.5, 8.5], [12.5, 14.5]]]], dtype=np.float32),
+        )
+        assert backend_name() == "opengl"
+    finally:
+        backend_set("cpu")
+
+
+def test_backend_vulkan_conv2d_bias_fallback():
+    ok = backend_set("vulkan")
+    if not ok:
+        pytest.skip("vulkan backend not registered (stub missing)")
+    try:
+        x = Tensor.new([1, 1, 3, 3], requires_grad=False)
+        w = Tensor.new([1, 1, 2, 2], requires_grad=False)
+        b = Tensor.new([1], requires_grad=False)
+        x.numpy_view()[:] = np.arange(9, dtype=np.float32).reshape(1, 1, 3, 3)
+        w.numpy_view()[:] = np.array([[[[1, 0], [0, 1]]]], dtype=np.float32)
+        b.numpy_view()[:] = np.array([0.5], dtype=np.float32)
+        x.set_device(1); w.set_device(1); b.set_device(1)
+        y = x.conv2d(w, bias=b)
+        assert y.shape() == [1, 1, 2, 2]
+        np.testing.assert_allclose(
+            y.to_numpy(),
+            np.array([[[[6.5, 8.5], [12.5, 14.5]]]], dtype=np.float32),
+        )
+        assert backend_name() == "vulkan"
+    finally:
+        backend_set("cpu")
+
+
+def test_backend_blas_matmul_fallback():
+    ok = backend_set("blas")
+    if not ok:
+        pytest.skip("blas backend not registered (stub missing)")
+    try:
+        a = Tensor.new([2, 3], requires_grad=False)
+        b = Tensor.new([3, 2], requires_grad=False)
+        a.numpy_view()[:] = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
+        b.numpy_view()[:] = np.array([[7.0, 8.0], [9.0, 10.0], [11.0, 12.0]], dtype=np.float32)
+        out = a.matmul(b)
+        np.testing.assert_allclose(out.to_numpy(), np.array([[58.0, 64.0], [139.0, 154.0]], dtype=np.float32))
+        assert backend_name() == "blas"
+    finally:
+        backend_set("cpu")
+
 
 def test_inplace_add_guarded_by_autograd():
     a = Tensor.new([2], requires_grad=True)

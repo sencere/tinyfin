@@ -167,9 +167,8 @@ Tensor *tensor_mul(Tensor *a, Tensor *b) {
 
     Tensor *out = NULL;
 
-    /* Attempt CUDA backend when tensors are on GPU (broadcast handled in backend). */
-    if (a->device == DEVICE_GPU &&
-        a->dtype == DTYPE_FLOAT32 && b->dtype == DTYPE_FLOAT32) {
+    /* Attempt backend for float32 tensors (broadcast handled in backend). */
+    if (a->dtype == DTYPE_FLOAT32 && b->dtype == DTYPE_FLOAT32) {
         Backend *bk = backend_get();
         if (bk && bk->mul) {
             out = bk->mul(a, b);

@@ -4,8 +4,8 @@ The backend registry (`backend.h`) lets tinyfin dispatch heavy ops (matmul/conv2
 
 ## Available backends
 - `cpu` (default): always registered; runs all ops on host.
-- `cuda`: optional; currently provides matmul, broadcast-aware add/mul, and inference-only conv2d (host copy); autograd falls back to CPU for conv2d backward. Enable via `ENABLE_CUDA`/`TINYFIN_ENABLE_CUDA`.
-- `blas`: optional; matmul/conv2d via BLAS (im2col+GEMM). Enable via `ENABLE_BLAS`/`TINYFIN_BACKEND=blas`.
+- `cuda`: optional; currently provides matmul, broadcast-aware add/mul, and conv2d with backward handled on CUDA (inputs/outputs still live in host memory). Enable via `ENABLE_CUDA`/`TINYFIN_ENABLE_CUDA`.
+- `blas`: optional; matmul/conv2d via BLAS (im2col+GEMM) on CPU for float32 tensors when selected. Enable via `ENABLE_BLAS`/`TINYFIN_BACKEND=blas`.
 - `opengl` / `vulkan`: stub backends registered by default for experimentation; currently fall back to CPU and log a warning. Use them as placeholders when prototyping new GPU paths.
 
 Select a backend via env `TINYFIN_BACKEND` or `tinyfin.backend_set("name")` in Python. If an op is unsupported, it falls back to the CPU implementation.

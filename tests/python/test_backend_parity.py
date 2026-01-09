@@ -108,5 +108,31 @@ def test_cuda_parity_conv2d():
         backend_set("cpu")
 
 
+def test_cuda_parity_conv2d_with_bias():
+    ok = backend_set("cuda")
+    if not ok:
+        pytest.skip("cuda backend not registered (stub missing)")
+    try:
+        rng = np.random.default_rng(7)
+        x_np = rng.standard_normal((1, 2, 5, 5), dtype=np.float32)
+        w_np = rng.standard_normal((3, 2, 3, 3), dtype=np.float32)
+        b_np = rng.standard_normal((3,), dtype=np.float32)
+
+        x = _to_tensor(x_np, device=1)
+        w = _to_tensor(w_np, device=1)
+        b = _to_tensor(b_np, device=1)
+        out = x.conv2d(w, bias=b)
+
+        x_cpu = _to_tensor(x_np)
+        w_cpu = _to_tensor(w_np)
+        b_cpu = _to_tensor(b_np)
+        out_cpu = x_cpu.conv2d(w_cpu, bias=b_cpu)
+
+        assert backend_name() == "cuda"
+        np.testing.assert_allclose(out.to_numpy(), out_cpu.to_numpy(), rtol=1e-4, atol=1e-5)
+    finally:
+        backend_set("cpu")
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

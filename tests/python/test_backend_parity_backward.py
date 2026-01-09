@@ -146,5 +146,35 @@ def test_cuda_parity_conv2d_backward_larger():
         backend_set("cpu")
 
 
+def test_cuda_parity_conv2d_backward_with_bias():
+    ok = backend_set("cuda")
+    if not ok:
+        pytest.skip("cuda backend not registered (stub missing)")
+    try:
+        rng = np.random.default_rng(8)
+        x_np = rng.standard_normal((1, 2, 5, 5), dtype=np.float32)
+        w_np = rng.standard_normal((3, 2, 3, 3), dtype=np.float32)
+        b_np = rng.standard_normal((3,), dtype=np.float32)
+
+        x = _to_tensor(x_np, requires_grad=True, device=1)
+        w = _to_tensor(w_np, requires_grad=True, device=1)
+        b = _to_tensor(b_np, requires_grad=True, device=1)
+        out = x.conv2d(w, bias=b)
+        out.sum().backward()
+
+        x_cpu = _to_tensor(x_np, requires_grad=True)
+        w_cpu = _to_tensor(w_np, requires_grad=True)
+        b_cpu = _to_tensor(b_np, requires_grad=True)
+        out_cpu = x_cpu.conv2d(w_cpu, bias=b_cpu)
+        out_cpu.sum().backward()
+
+        assert backend_name() == "cuda"
+        np.testing.assert_allclose(x.grad_numpy(), x_cpu.grad_numpy(), rtol=1e-4, atol=1e-5)
+        np.testing.assert_allclose(w.grad_numpy(), w_cpu.grad_numpy(), rtol=1e-4, atol=1e-5)
+        np.testing.assert_allclose(b.grad_numpy(), b_cpu.grad_numpy(), rtol=1e-4, atol=1e-5)
+    finally:
+        backend_set("cpu")
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

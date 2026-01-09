@@ -465,8 +465,79 @@ static __global__ void conv2d_kernel(const float *x, const float *w, const float
     out[out_idx] = acc;
 }
 
-/* Backward kept on CPU; input/output live in host memory even for GPU tensors. */
-static void conv2d_bwd_cuda(AutogradNode *n) {
+static __global__ void conv2d_bwd_w_kernel(const float *x, const float *grad_out, float *grad_w,
+                                           int N, int C_in, int H, int W,
+                                           int C_out, int KH, int KW,
+                                           int Hout, int Wout, int total_w) {
+    int idx = (int)(blockIdx.x * blockDim.x + threadIdx.x);
+    if (idx >= total_w) return;
+    int tmp = idx;
+    int kw = tmp % KW; tmp /= KW;
+    int kh = tmp % KH; tmp /= KH;
+    int ic = tmp % C_in; tmp /= C_in;
+    int oc = tmp;
+    float acc = 0.0f;
+    for (int n = 0; n < N; n++) {
+        for (int ho = 0; ho < Hout; ho++) {
+            for (int wo = 0; wo < Wout; wo++) {
+                int xi_h = ho + kh;
+                int xi_w = wo + kw;
+                size_t x_idx = ((size_t)n * C_in + ic) * H * W + xi_h * W + xi_w;
+                size_t out_idx = ((size_t)n * C_out + oc) * Hout * Wout + ho * Wout + wo;
+                acc += grad_out[out_idx] * x[x_idx];
+            }
+        }
+    }
+    size_t w_idx = ((size_t)oc * C_in + ic) * KH * KW + kh * KW + kw;
+    grad_w[w_idx] = acc;
+}
+
+static __global__ void conv2d_bwd_x_kernel(const float *w, const float *grad_out, float *grad_x,
+                                           int N, int C_in, int H, int W,
+                                           int C_out, int KH, int KW,
+                                           int Hout, int Wout, int total_x) {
+    int idx = (int)(blockIdx.x * blockDim.x + threadIdx.x);
+    if (idx >= total_x) return;
+    int tmp = idx;
+    int w_idx = tmp % W; tmp /= W;
+    int h_idx = tmp % H; tmp /= H;
+    int ic = tmp % C_in; tmp /= C_in;
+    int n = tmp;
+    float acc = 0.0f;
+    for (int oc = 0; oc < C_out; oc++) {
+        for (int kh = 0; kh < KH; kh++) {
+            int ho = h_idx - kh;
+            if (ho < 0 || ho >= Hout) continue;
+            for (int kw = 0; kw < KW; kw++) {
+                int wo = w_idx - kw;
+                if (wo < 0 || wo >= Wout) continue;
+                size_t out_idx = ((size_t)n * C_out + oc) * Hout * Wout + ho * Wout + wo;
+                size_t w_off = ((size_t)oc * C_in + ic) * KH * KW + kh * KW + kw;
+                acc += grad_out[out_idx] * w[w_off];
+            }
+        }
+    }
+    size_t x_off = ((size_t)n * C_in + ic) * H * W + h_idx * W + w_idx;
+    grad_x[x_off] = acc;
+}
+
+static __global__ void conv2d_bwd_b_kernel(const float *grad_out, float *grad_b,
+                                           int N, int C_out, int Hout, int Wout, int total_b) {
+    int oc = (int)(blockIdx.x * blockDim.x + threadIdx.x);
+    if (oc >= total_b) return;
+    float acc = 0.0f;
+    for (int n = 0; n < N; n++) {
+        for (int ho = 0; ho < Hout; ho++) {
+            for (int wo = 0; wo < Wout; wo++) {
+                size_t out_idx = ((size_t)n * C_out + oc) * Hout * Wout + ho * Wout + wo;
+                acc += grad_out[out_idx];
+            }
+        }
+    }
+    grad_b[oc] = acc;
+}
+
+static void conv2d_bwd_cpu(AutogradNode *n) {
     if (!n) return;
     Tensor *x = n->a;
     Tensor *w = n->b;
@@ -550,6 +621,136 @@ static void conv2d_bwd_cuda(AutogradNode *n) {
             }
             b->grad->data[oc] += gb;
         }
+    }
+}
+
+/* Backward uses CUDA kernels, but inputs/outputs live in host memory. */
+static void conv2d_bwd_cuda(AutogradNode *n) {
+    if (!n) return;
+    Tensor *x = n->a;
+    Tensor *w = n->b;
+    Tensor *b = n->bias;
+    Tensor *y = n->out;
+    if (!x || !w || !y || !y->grad) return;
+    if (x->dtype != DTYPE_FLOAT32 || w->dtype != DTYPE_FLOAT32) {
+        conv2d_bwd_cpu(n);
+        return;
+    }
+
+    int N = x->shape[0];
+    int C_in = x->shape[1];
+    int H = x->shape[2];
+    int W = x->shape[3];
+    int C_out = w->shape[0];
+    int KH = w->shape[2];
+    int KW = w->shape[3];
+    int Hout = y->shape[2];
+    int Wout = y->shape[3];
+
+    int need_x = x->requires_grad && x->grad;
+    int need_w = w->requires_grad && w->grad;
+    int need_b = b && b->requires_grad && b->grad;
+    if (!need_x && !need_w && !need_b) return;
+
+    size_t bytes_x = (size_t)x->size * sizeof(float);
+    size_t bytes_w = (size_t)w->size * sizeof(float);
+    size_t bytes_out = (size_t)y->grad->size * sizeof(float);
+    size_t bytes_b = (b ? (size_t)b->size * sizeof(float) : 0);
+
+    float *dX = NULL, *dW = NULL, *dOut = NULL;
+    float *dGradX = NULL, *dGradW = NULL, *dGradB = NULL;
+    int ok = 1;
+
+    if (!cuda_ok(cudaMalloc((void **)&dX, bytes_x), "cudaMalloc conv2d bwd X")) ok = 0;
+    if (!cuda_ok(cudaMalloc((void **)&dW, bytes_w), "cudaMalloc conv2d bwd W")) ok = 0;
+    if (!cuda_ok(cudaMalloc((void **)&dOut, bytes_out), "cudaMalloc conv2d bwd dOut")) ok = 0;
+    if (ok && !cuda_ok(cudaMemcpy(dX, x->data, bytes_x, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd X")) ok = 0;
+    if (ok && !cuda_ok(cudaMemcpy(dW, w->data, bytes_w, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd W")) ok = 0;
+    if (ok && !cuda_ok(cudaMemcpy(dOut, y->grad->data, bytes_out, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd dOut")) ok = 0;
+
+    if (ok && need_x) {
+        if (!cuda_ok(cudaMalloc((void **)&dGradX, bytes_x), "cudaMalloc conv2d bwd dX")) ok = 0;
+        if (ok && !cuda_ok(cudaMemset(dGradX, 0, bytes_x), "cudaMemset conv2d bwd dX")) ok = 0;
+    }
+    if (ok && need_w) {
+        if (!cuda_ok(cudaMalloc((void **)&dGradW, bytes_w), "cudaMalloc conv2d bwd dW")) ok = 0;
+        if (ok && !cuda_ok(cudaMemset(dGradW, 0, bytes_w), "cudaMemset conv2d bwd dW")) ok = 0;
+    }
+    if (ok && need_b) {
+        if (!cuda_ok(cudaMalloc((void **)&dGradB, bytes_b), "cudaMalloc conv2d bwd dB")) ok = 0;
+        if (ok && !cuda_ok(cudaMemset(dGradB, 0, bytes_b), "cudaMemset conv2d bwd dB")) ok = 0;
+    }
+
+    int threads = 128;
+    if (ok && need_w) {
+        int total_w = C_out * C_in * KH * KW;
+        int blocks = (total_w + threads - 1) / threads;
+        conv2d_bwd_w_kernel<<<blocks, threads>>>(dX, dOut, dGradW, N, C_in, H, W,
+                                                 C_out, KH, KW, Hout, Wout, total_w);
+        if (!cuda_ok(cudaGetLastError(), "conv2d bwd dW kernel")) ok = 0;
+    }
+
+    if (ok && need_x) {
+        int total_x = N * C_in * H * W;
+        int blocks = (total_x + threads - 1) / threads;
+        conv2d_bwd_x_kernel<<<blocks, threads>>>(dW, dOut, dGradX, N, C_in, H, W,
+                                                 C_out, KH, KW, Hout, Wout, total_x);
+        if (!cuda_ok(cudaGetLastError(), "conv2d bwd dX kernel")) ok = 0;
+    }
+
+    if (ok && need_b) {
+        int total_b = C_out;
+        int blocks = (total_b + threads - 1) / threads;
+        conv2d_bwd_b_kernel<<<blocks, threads>>>(dOut, dGradB, N, C_out, Hout, Wout, total_b);
+        if (!cuda_ok(cudaGetLastError(), "conv2d bwd dB kernel")) ok = 0;
+    }
+
+    float *tmp_w = NULL;
+    float *tmp_x = NULL;
+    float *tmp_b = NULL;
+
+    if (ok && need_w) {
+        tmp_w = (float *)malloc(bytes_w);
+        if (!tmp_w) ok = 0;
+        if (ok && !cuda_ok(cudaMemcpy(tmp_w, dGradW, bytes_w, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d bwd dW->host")) ok = 0;
+    }
+
+    if (ok && need_x) {
+        tmp_x = (float *)malloc(bytes_x);
+        if (!tmp_x) ok = 0;
+        if (ok && !cuda_ok(cudaMemcpy(tmp_x, dGradX, bytes_x, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d bwd dX->host")) ok = 0;
+    }
+
+    if (ok && need_b) {
+        tmp_b = (float *)malloc(bytes_b);
+        if (!tmp_b) ok = 0;
+        if (ok && !cuda_ok(cudaMemcpy(tmp_b, dGradB, bytes_b, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d bwd dB->host")) ok = 0;
+    }
+
+    if (ok && need_w) {
+        for (size_t i = 0; i < w->grad->size; i++) w->grad->data[i] += tmp_w[i];
+    }
+    if (ok && need_x) {
+        for (size_t i = 0; i < x->grad->size; i++) x->grad->data[i] += tmp_x[i];
+    }
+    if (ok && need_b) {
+        for (size_t i = 0; i < b->grad->size; i++) b->grad->data[i] += tmp_b[i];
+    }
+
+    free(tmp_w);
+    free(tmp_x);
+    free(tmp_b);
+
+    if (dX) cudaFree(dX);
+    if (dW) cudaFree(dW);
+    if (dOut) cudaFree(dOut);
+    if (dGradX) cudaFree(dGradX);
+    if (dGradW) cudaFree(dGradW);
+    if (dGradB) cudaFree(dGradB);
+
+    if (!ok) {
+        fprintf(stderr, "[tinyfin][cuda] conv2d backward failed; falling back to CPU\n");
+        conv2d_bwd_cpu(n);
     }
 }
 

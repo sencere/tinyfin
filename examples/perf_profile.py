@@ -28,19 +28,22 @@ def flops_conv2d(n, c, h, w, o, k):
 def run(device, op, dims, iters):
     if device == "cuda":
         os.environ["TINYFIN_BACKEND"] = "cuda"
-        backend_set("cuda")
+        ok = backend_set("cuda")
     elif device == "blas":
         os.environ["TINYFIN_BACKEND"] = "blas"
-        backend_set("blas")
+        ok = backend_set("blas")
     elif device in ("opengl", "vulkan"):
         os.environ["TINYFIN_BACKEND"] = device
-        backend_set(device)
+        ok = backend_set(device)
     else:
         os.environ["TINYFIN_BACKEND"] = "cpu"
-        backend_set("cpu")
+        ok = backend_set("cpu")
+
+    if not ok:
+        raise RuntimeError(f"backend '{device}' not available")
 
     print(f"backend: {backend_name()}, device: {device}, op: {op}")
-    device_id = 1 if device == "cuda" else 0
+    device_id = 1 if backend_name() == "cuda" else 0
 
     if op == "matmul":
         m, k, n = dims
