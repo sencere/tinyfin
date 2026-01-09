@@ -56,14 +56,14 @@
   - [x] CPU vs CUDA parity tests for matmul/add/mul/conv2d (fwd/bwd when available).
   - [x] Perf profiler runs on CPU + CUDA when built.
 
-### Milestone 7 — Hardening
+### Milestone 7 — Hardening (Done)
 - Versioning/deprecation strategy, serialization format/validation, property-based tests, broader overflow/grad checks.
 - Docs/tutorials, contributor guide, release process, platform/Python support matrix.
 - Mixed precision: stubbed autocast in Python; real backend support TBD.
 - Acceptance:
-  - [ ] Versioning/deprecation policy documented.
-  - [ ] Serialization format validated with fuzz/prop tests.
-  - [ ] Platform/Python support matrix published.
+  - [x] Versioning/deprecation policy documented.
+  - [x] Serialization format validated with fuzz/prop tests.
+  - [x] Platform/Python support matrix published.
 
 ## Product Surface
 
@@ -95,5 +95,6 @@
 - Perf profiler script validated on CPU and CUDA (when built).
 - Graph export now includes shape/dtype metadata; Python IR + cache-key helpers available.
 - Basic const-folding and cache helpers are available for experimentation.
+- Checkpoint serialization fuzz coverage added for roundtrip validation.
 - Examples: MNIST/CIFAR/transformer, backend-aware CNN; perf profiler and CUDA demo available.
 - Ergonomics: `Tensor.from_numpy`, `Trainer.fit`, `MLP/Flatten/MaxPool2d`, `CrossEntropyLoss`, and dataset helpers (`TensorDataset/DataLoader.from_numpy`) to reduce example boilerplate.

@@ -1,5 +1,8 @@
 # tinyfin Python API (stub)
 
+See `docs/versioning.md` for versioning and deprecation policy.
+See `docs/support_matrix.md` for platform and Python support.
+
 Stable namespaces:
 - `tinyfin.tensor`: `Tensor`, `no_grad`, `bce_loss`, `cross_entropy_logits`, `assert_finite` (Tensor helpers include `Tensor.from_numpy`)
 - `tinyfin.nn`: `Module`, `Parameter`, `Sequential`, `Linear`, `Embedding`, `Flatten`, `MaxPool2d`, `Conv2d`, `BatchNorm`, `Dropout`, `MLP`, `CrossEntropyLoss`
