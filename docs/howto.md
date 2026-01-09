@@ -10,6 +10,15 @@ backend_set("cpu")
 print("backend:", backend_name())
 ```
 
+## Mixed precision (stub)
+```python
+import tinyfin
+
+tinyfin.set_mixed_precision(True)
+```
+
+See `docs/mixed_precision.md` for details and current limitations.
+
 ## Build a tiny model and train
 ```python
 import numpy as np

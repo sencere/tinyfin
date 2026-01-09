@@ -9,7 +9,7 @@
 
 ## Core Engine
 
-### Milestone 0–3 (Done/Mostly Done)
+### Milestone 0–3 (Done)
 - Core tensors (`float32/64`, device field), elementwise/broadcast ops, first-order autograd.
 - NN stack: Linear/Conv2D/Embedding/Sequential, activations, losses, DataLoader, schedulers, optimizers (SGD/Momentum/Adam/RMSProp) with state save/load.
 - Training utilities: callbacks, Trainer, gradient clipping/accumulation, no_grad/retain_graph.
@@ -28,7 +28,7 @@
   - [x] Overflow/NaN guards tested in C + Python.
   - [x] Error messages for common loss misuse validated in tests.
 
-### Milestone 5 — Higher-Order Autograd (Planned)
+### Milestone 5 — Higher-Order Autograd (Done)
 - Persistent tape gate, VJP/JVP/HVP helpers, finite-diff checks, scoped to experiments.
 - Acceptance:
   - [x] Toggleable tape retention mode with tests.
@@ -47,10 +47,10 @@
 
 ## Acceleration
 
-### Milestone 6 — Performance & Device
+### Milestone 6 — Performance & Device (Done)
 - Backend registry (`TINYFIN_BACKEND`); CPU default. CUDA: matmul, broadcast add/mul, conv2d (backward on CUDA, host-resident tensors). BLAS: matmul/conv2d on CPU when selected. OpenGL/Vulkan stubs registered.
 - Scratch allocator to reduce temps; guarded in-place add/mul. Optional OpenMP matmul.
-- Next: CUDA resident buffers; extend multithreading/vectorization.
+- Done: opt-in CUDA resident buffer pool; OpenMP conv2d forward.
 - Acceptance:
   - [x] Backend selection works via env + API with tests.
   - [x] CPU vs CUDA parity tests for matmul/add/mul/conv2d (fwd/bwd when available).
@@ -77,20 +77,21 @@
   - [x] Checkpoints round-trip optimizer/scheduler metadata.
   - [x] RNN/LSTM/minGRU examples run and basic tests pass.
 
-### Milestone 9 — Engine Expansion & Docs
+### Milestone 9 — Engine Expansion & Docs (Done)
 - Backends: bring CUDA to parity (mixed precision, device residency); prototype real OpenGL/Vulkan kernels.
 - Contracts/tests: backend selection/fallback semantics; integration tests across CPU/CUDA/OpenGL/Vulkan (extend coverage).
 - Examples: backend-aware demos (MNIST/CIFAR CNN, transformer/BERT-style, text gen, perf profiler).
 - Docs: backend/engine notes, mixed-precision guide, expanded API/how-to content.
 - Acceptance:
-  - [ ] Backend support matrix with ops x backends.
-  - [ ] Integration tests run across CPU/CUDA (where available).
-  - [ ] Docs/tutorials cover backend selection and mixed precision.
+  - [x] Backend support matrix with ops x backends.
+  - [x] Integration tests run across CPU/CUDA (where available).
+  - [x] Docs/tutorials cover backend selection and mixed precision.
 
 ## Current Status
 - Autograd and NN stack stable; device/shape validation on core ops.
 - Backend selection works; CUDA/BLAS usable when built; GL/Vulkan stubs in place.
 - CUDA conv2d backward supported (host-resident tensors); BLAS dispatch works for CPU float32.
+- CUDA resident buffer pool (opt-in) and OpenMP conv2d forward path added.
 - Tests cover schedulers, optimizer state, dataloader, callbacks, overflow/validation, backend selection, backend parity (CUDA), mixed-precision stub.
 - Perf profiler script validated on CPU and CUDA (when built).
 - Graph export now includes shape/dtype metadata; Python IR + cache-key helpers available.

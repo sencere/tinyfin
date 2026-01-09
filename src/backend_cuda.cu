@@ -11,6 +11,63 @@ extern "C" {
 #include <string.h>
 #include <limits.h>
 
+typedef struct {
+    void *ptr;
+    size_t size;
+    int in_use;
+} CudaBuf;
+
+static CudaBuf cuda_pool[16];
+
+static int cuda_resident_enabled(void) {
+    const char *env = getenv("TINYFIN_CUDA_RESIDENT");
+    if (!env) return 0;
+    return atoi(env) != 0;
+}
+
+static void cuda_pool_reset(void) {
+    for (size_t i = 0; i < sizeof(cuda_pool) / sizeof(cuda_pool[0]); i++) {
+        cuda_pool[i].in_use = 0;
+    }
+}
+
+static void *cuda_buf_alloc(size_t bytes, int *transient) {
+    if (!cuda_resident_enabled()) {
+        void *ptr = NULL;
+        if (!cuda_ok(cudaMalloc(&ptr, bytes), "cudaMalloc transient")) return NULL;
+        if (transient) *transient = 1;
+        return ptr;
+    }
+
+    for (size_t i = 0; i < sizeof(cuda_pool) / sizeof(cuda_pool[0]); i++) {
+        if (!cuda_pool[i].in_use && cuda_pool[i].ptr && cuda_pool[i].size >= bytes) {
+            cuda_pool[i].in_use = 1;
+            if (transient) *transient = 0;
+            return cuda_pool[i].ptr;
+        }
+    }
+    for (size_t i = 0; i < sizeof(cuda_pool) / sizeof(cuda_pool[0]); i++) {
+        if (!cuda_pool[i].in_use && !cuda_pool[i].ptr) {
+            void *ptr = NULL;
+            if (!cuda_ok(cudaMalloc(&ptr, bytes), "cudaMalloc resident")) return NULL;
+            cuda_pool[i].ptr = ptr;
+            cuda_pool[i].size = bytes;
+            cuda_pool[i].in_use = 1;
+            if (transient) *transient = 0;
+            return ptr;
+        }
+    }
+
+    void *ptr = NULL;
+    if (!cuda_ok(cudaMalloc(&ptr, bytes), "cudaMalloc transient fallback")) return NULL;
+    if (transient) *transient = 1;
+    return ptr;
+}
+
+static void cuda_buf_free(void *ptr, int transient) {
+    if (transient && ptr) cudaFree(ptr);
+}
+
 /* Simple, naive CUDA matmul kernel (C-order, stride-aware). */
 static __global__ void matmul_kernel(const float *A, const float *B, float *C,
                                      int M, int N, int K,
@@ -117,9 +174,13 @@ static Tensor *cuda_matmul(Tensor *a, Tensor *b) {
     dim3 grid((N + block.x - 1) / block.x, (M + block.y - 1) / block.y);
 
     float *dA = NULL, *dB = NULL, *dC = NULL;
-    if (!cuda_ok(cudaMalloc((void **)&dA, bytes_a), "cudaMalloc A")) goto fail;
-    if (!cuda_ok(cudaMalloc((void **)&dB, bytes_b), "cudaMalloc B")) goto fail;
-    if (!cuda_ok(cudaMalloc((void **)&dC, bytes_c), "cudaMalloc C")) goto fail;
+    int trans_a = 0, trans_b = 0, trans_c = 0;
+    dA = (float *)cuda_buf_alloc(bytes_a, &trans_a);
+    if (!dA) goto fail;
+    dB = (float *)cuda_buf_alloc(bytes_b, &trans_b);
+    if (!dB) goto fail;
+    dC = (float *)cuda_buf_alloc(bytes_c, &trans_c);
+    if (!dC) goto fail;
 
     if (!cuda_ok(cudaMemcpy(dA, a->data, bytes_a, cudaMemcpyHostToDevice), "cudaMemcpy A")) goto fail;
     if (!cuda_ok(cudaMemcpy(dB, b->data, bytes_b, cudaMemcpyHostToDevice), "cudaMemcpy B")) goto fail;
@@ -150,15 +211,17 @@ static Tensor *cuda_matmul(Tensor *a, Tensor *b) {
         }
     }
 
-    cudaFree(dA);
-    cudaFree(dB);
-    cudaFree(dC);
+    cuda_buf_free(dA, trans_a);
+    cuda_buf_free(dB, trans_b);
+    cuda_buf_free(dC, trans_c);
+    cuda_pool_reset();
     return out;
 
 fail:
-    if (dA) cudaFree(dA);
-    if (dB) cudaFree(dB);
-    if (dC) cudaFree(dC);
+    if (dA) cuda_buf_free(dA, trans_a);
+    if (dB) cuda_buf_free(dB, trans_b);
+    if (dC) cuda_buf_free(dC, trans_c);
+    cuda_pool_reset();
     tensor_free(out);
     return NULL;
 }
@@ -254,9 +317,13 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
         size_t total = (size_t)out->size;
         size_t bytes = total * sizeof(float);
         float *dA = NULL, *dB = NULL, *dOut = NULL;
-        if (!cuda_ok(cudaMalloc((void **)&dA, bytes), "cudaMalloc add/mul A")) goto fail_fast;
-        if (!cuda_ok(cudaMalloc((void **)&dB, bytes), "cudaMalloc add/mul B")) goto fail_fast;
-        if (!cuda_ok(cudaMalloc((void **)&dOut, bytes), "cudaMalloc add/mul out")) goto fail_fast;
+        int trans_a = 0, trans_b = 0, trans_out = 0;
+        dA = (float *)cuda_buf_alloc(bytes, &trans_a);
+        if (!dA) goto fail_fast;
+        dB = (float *)cuda_buf_alloc(bytes, &trans_b);
+        if (!dB) goto fail_fast;
+        dOut = (float *)cuda_buf_alloc(bytes, &trans_out);
+        if (!dOut) goto fail_fast;
         if (!cuda_ok(cudaMemcpy(dA, a->data, bytes, cudaMemcpyHostToDevice), "cudaMemcpy add/mul A")) goto fail_fast;
         if (!cuda_ok(cudaMemcpy(dB, b->data, bytes, cudaMemcpyHostToDevice), "cudaMemcpy add/mul B")) goto fail_fast;
 
@@ -270,16 +337,18 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
         if (!cuda_ok(cudaGetLastError(), "add/mul kernel launch")) goto fail_fast;
         if (!cuda_ok(cudaMemcpy(out->data, dOut, bytes, cudaMemcpyDeviceToHost), "cudaMemcpy add/mul out")) goto fail_fast;
 
-        cudaFree(dA);
-        cudaFree(dB);
-        cudaFree(dOut);
+        cuda_buf_free(dA, trans_a);
+        cuda_buf_free(dB, trans_b);
+        cuda_buf_free(dOut, trans_out);
+        cuda_pool_reset();
         free(out_shape);
         return out;
 
     fail_fast:
-        if (dA) cudaFree(dA);
-        if (dB) cudaFree(dB);
-        if (dOut) cudaFree(dOut);
+        if (dA) cuda_buf_free(dA, trans_a);
+        if (dB) cuda_buf_free(dB, trans_b);
+        if (dOut) cuda_buf_free(dOut, trans_out);
+        cuda_pool_reset();
         free(out_shape);
         tensor_free(out);
         return NULL;
@@ -295,8 +364,11 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
         if (base && base->size == out->size && total <= (size_t)INT_MAX) {
             size_t bytes_base = (size_t)base->size * sizeof(float);
             float *dA = NULL, *dOut = NULL;
-            if (!cuda_ok(cudaMalloc((void **)&dA, bytes_base), "cudaMalloc mul/scalar A")) goto scalar_fallback;
-            if (!cuda_ok(cudaMalloc((void **)&dOut, bytes_out), "cudaMalloc mul/scalar out")) goto scalar_fallback;
+            int trans_a = 0, trans_out = 0;
+            dA = (float *)cuda_buf_alloc(bytes_base, &trans_a);
+            if (!dA) goto scalar_fallback;
+            dOut = (float *)cuda_buf_alloc(bytes_out, &trans_out);
+            if (!dOut) goto scalar_fallback;
             if (!cuda_ok(cudaMemcpy(dA, base->data, bytes_base, cudaMemcpyHostToDevice), "cudaMemcpy mul/scalar A")) goto scalar_fallback;
 
             int threads = 256;
@@ -305,14 +377,16 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
             if (!cuda_ok(cudaGetLastError(), "mul/scalar kernel launch")) goto scalar_fallback;
             if (!cuda_ok(cudaMemcpy(out->data, dOut, bytes_out, cudaMemcpyDeviceToHost), "cudaMemcpy mul/scalar out")) goto scalar_fallback;
 
-            cudaFree(dA);
-            cudaFree(dOut);
+            cuda_buf_free(dA, trans_a);
+            cuda_buf_free(dOut, trans_out);
+            cuda_pool_reset();
             free(out_shape);
             return out;
 
         scalar_fallback:
-            if (dA) cudaFree(dA);
-            if (dOut) cudaFree(dOut);
+            if (dA) cuda_buf_free(dA, trans_a);
+            if (dOut) cuda_buf_free(dOut, trans_out);
+            cuda_pool_reset();
         }
     }
 
@@ -334,9 +408,13 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
             size_t bytes_base = (size_t)base->size * sizeof(float);
             size_t bytes_bias = (size_t)bias->size * sizeof(float);
             float *dA = NULL, *dB = NULL, *dOut = NULL;
-            if (!cuda_ok(cudaMalloc((void **)&dA, bytes_base), "cudaMalloc add/bias A")) goto bias_fallback;
-            if (!cuda_ok(cudaMalloc((void **)&dB, bytes_bias), "cudaMalloc add/bias B")) goto bias_fallback;
-            if (!cuda_ok(cudaMalloc((void **)&dOut, bytes_out), "cudaMalloc add/bias out")) goto bias_fallback;
+            int trans_a = 0, trans_b = 0, trans_out = 0;
+            dA = (float *)cuda_buf_alloc(bytes_base, &trans_a);
+            if (!dA) goto bias_fallback;
+            dB = (float *)cuda_buf_alloc(bytes_bias, &trans_b);
+            if (!dB) goto bias_fallback;
+            dOut = (float *)cuda_buf_alloc(bytes_out, &trans_out);
+            if (!dOut) goto bias_fallback;
             if (!cuda_ok(cudaMemcpy(dA, base->data, bytes_base, cudaMemcpyHostToDevice), "cudaMemcpy add/bias A")) goto bias_fallback;
             if (!cuda_ok(cudaMemcpy(dB, bias->data, bytes_bias, cudaMemcpyHostToDevice), "cudaMemcpy add/bias B")) goto bias_fallback;
 
@@ -346,16 +424,18 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
             if (!cuda_ok(cudaGetLastError(), "add/bias kernel launch")) goto bias_fallback;
             if (!cuda_ok(cudaMemcpy(out->data, dOut, bytes_out, cudaMemcpyDeviceToHost), "cudaMemcpy add/bias out")) goto bias_fallback;
 
-            cudaFree(dA);
-            cudaFree(dB);
-            cudaFree(dOut);
+            cuda_buf_free(dA, trans_a);
+            cuda_buf_free(dB, trans_b);
+            cuda_buf_free(dOut, trans_out);
+            cuda_pool_reset();
             free(out_shape);
             return out;
 
         bias_fallback:
-            if (dA) cudaFree(dA);
-            if (dB) cudaFree(dB);
-            if (dOut) cudaFree(dOut);
+            if (dA) cuda_buf_free(dA, trans_a);
+            if (dB) cuda_buf_free(dB, trans_b);
+            if (dOut) cuda_buf_free(dOut, trans_out);
+            cuda_pool_reset();
         }
     }
 
@@ -394,13 +474,20 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
     int blocks = (int)((total + threads - 1) / threads);
     float *dA = NULL, *dB = NULL, *dOut = NULL;
     int *dShape = NULL, *dStrideA = NULL, *dStrideB = NULL;
+    int trans_a = 0, trans_b = 0, trans_out = 0, trans_shape = 0, trans_sa = 0, trans_sb = 0;
 
-    if (!cuda_ok(cudaMalloc((void **)&dA, bytes_a), "cudaMalloc add/mul A")) goto fail;
-    if (!cuda_ok(cudaMalloc((void **)&dB, bytes_b), "cudaMalloc add/mul B")) goto fail;
-    if (!cuda_ok(cudaMalloc((void **)&dOut, bytes_out), "cudaMalloc add/mul out")) goto fail;
-    if (!cuda_ok(cudaMalloc((void **)&dShape, sizeof(int) * (size_t)out_ndim), "cudaMalloc shape")) goto fail;
-    if (!cuda_ok(cudaMalloc((void **)&dStrideA, sizeof(int) * (size_t)out_ndim), "cudaMalloc strideA")) goto fail;
-    if (!cuda_ok(cudaMalloc((void **)&dStrideB, sizeof(int) * (size_t)out_ndim), "cudaMalloc strideB")) goto fail;
+    dA = (float *)cuda_buf_alloc(bytes_a, &trans_a);
+    if (!dA) goto fail;
+    dB = (float *)cuda_buf_alloc(bytes_b, &trans_b);
+    if (!dB) goto fail;
+    dOut = (float *)cuda_buf_alloc(bytes_out, &trans_out);
+    if (!dOut) goto fail;
+    dShape = (int *)cuda_buf_alloc(sizeof(int) * (size_t)out_ndim, &trans_shape);
+    if (!dShape) goto fail;
+    dStrideA = (int *)cuda_buf_alloc(sizeof(int) * (size_t)out_ndim, &trans_sa);
+    if (!dStrideA) goto fail;
+    dStrideB = (int *)cuda_buf_alloc(sizeof(int) * (size_t)out_ndim, &trans_sb);
+    if (!dStrideB) goto fail;
 
     if (!cuda_ok(cudaMemcpy(dA, a->data, bytes_a, cudaMemcpyHostToDevice), "cudaMemcpy add/mul A")) goto fail;
     if (!cuda_ok(cudaMemcpy(dB, b->data, bytes_b, cudaMemcpyHostToDevice), "cudaMemcpy add/mul B")) goto fail;
@@ -413,22 +500,24 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
 
     if (!cuda_ok(cudaMemcpy(out->data, dOut, bytes_out, cudaMemcpyDeviceToHost), "cudaMemcpy add/mul out")) goto fail;
 
-    cudaFree(dA);
-    cudaFree(dB);
-    cudaFree(dOut);
-    cudaFree(dShape);
-    cudaFree(dStrideA);
-    cudaFree(dStrideB);
+    cuda_buf_free(dA, trans_a);
+    cuda_buf_free(dB, trans_b);
+    cuda_buf_free(dOut, trans_out);
+    cuda_buf_free(dShape, trans_shape);
+    cuda_buf_free(dStrideA, trans_sa);
+    cuda_buf_free(dStrideB, trans_sb);
+    cuda_pool_reset();
     free(out_shape);
     return out;
 
 fail:
-    if (dA) cudaFree(dA);
-    if (dB) cudaFree(dB);
-    if (dOut) cudaFree(dOut);
-    if (dShape) cudaFree(dShape);
-    if (dStrideA) cudaFree(dStrideA);
-    if (dStrideB) cudaFree(dStrideB);
+    if (dA) cuda_buf_free(dA, trans_a);
+    if (dB) cuda_buf_free(dB, trans_b);
+    if (dOut) cuda_buf_free(dOut, trans_out);
+    if (dShape) cuda_buf_free(dShape, trans_shape);
+    if (dStrideA) cuda_buf_free(dStrideA, trans_sa);
+    if (dStrideB) cuda_buf_free(dStrideB, trans_sb);
+    cuda_pool_reset();
     free(out_shape);
     tensor_free(out);
     return NULL;
@@ -659,25 +748,33 @@ static void conv2d_bwd_cuda(AutogradNode *n) {
 
     float *dX = NULL, *dW = NULL, *dOut = NULL;
     float *dGradX = NULL, *dGradW = NULL, *dGradB = NULL;
+    int trans_x = 0, trans_w = 0, trans_out = 0;
+    int trans_gx = 0, trans_gw = 0, trans_gb = 0;
     int ok = 1;
 
-    if (!cuda_ok(cudaMalloc((void **)&dX, bytes_x), "cudaMalloc conv2d bwd X")) ok = 0;
-    if (!cuda_ok(cudaMalloc((void **)&dW, bytes_w), "cudaMalloc conv2d bwd W")) ok = 0;
-    if (!cuda_ok(cudaMalloc((void **)&dOut, bytes_out), "cudaMalloc conv2d bwd dOut")) ok = 0;
+    dX = (float *)cuda_buf_alloc(bytes_x, &trans_x);
+    if (!dX) ok = 0;
+    dW = (float *)cuda_buf_alloc(bytes_w, &trans_w);
+    if (!dW) ok = 0;
+    dOut = (float *)cuda_buf_alloc(bytes_out, &trans_out);
+    if (!dOut) ok = 0;
     if (ok && !cuda_ok(cudaMemcpy(dX, x->data, bytes_x, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd X")) ok = 0;
     if (ok && !cuda_ok(cudaMemcpy(dW, w->data, bytes_w, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd W")) ok = 0;
     if (ok && !cuda_ok(cudaMemcpy(dOut, y->grad->data, bytes_out, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd dOut")) ok = 0;
 
     if (ok && need_x) {
-        if (!cuda_ok(cudaMalloc((void **)&dGradX, bytes_x), "cudaMalloc conv2d bwd dX")) ok = 0;
+        dGradX = (float *)cuda_buf_alloc(bytes_x, &trans_gx);
+        if (!dGradX) ok = 0;
         if (ok && !cuda_ok(cudaMemset(dGradX, 0, bytes_x), "cudaMemset conv2d bwd dX")) ok = 0;
     }
     if (ok && need_w) {
-        if (!cuda_ok(cudaMalloc((void **)&dGradW, bytes_w), "cudaMalloc conv2d bwd dW")) ok = 0;
+        dGradW = (float *)cuda_buf_alloc(bytes_w, &trans_gw);
+        if (!dGradW) ok = 0;
         if (ok && !cuda_ok(cudaMemset(dGradW, 0, bytes_w), "cudaMemset conv2d bwd dW")) ok = 0;
     }
     if (ok && need_b) {
-        if (!cuda_ok(cudaMalloc((void **)&dGradB, bytes_b), "cudaMalloc conv2d bwd dB")) ok = 0;
+        dGradB = (float *)cuda_buf_alloc(bytes_b, &trans_gb);
+        if (!dGradB) ok = 0;
         if (ok && !cuda_ok(cudaMemset(dGradB, 0, bytes_b), "cudaMemset conv2d bwd dB")) ok = 0;
     }
 
@@ -741,12 +838,13 @@ static void conv2d_bwd_cuda(AutogradNode *n) {
     free(tmp_x);
     free(tmp_b);
 
-    if (dX) cudaFree(dX);
-    if (dW) cudaFree(dW);
-    if (dOut) cudaFree(dOut);
-    if (dGradX) cudaFree(dGradX);
-    if (dGradW) cudaFree(dGradW);
-    if (dGradB) cudaFree(dGradB);
+    if (dX) cuda_buf_free(dX, trans_x);
+    if (dW) cuda_buf_free(dW, trans_w);
+    if (dOut) cuda_buf_free(dOut, trans_out);
+    if (dGradX) cuda_buf_free(dGradX, trans_gx);
+    if (dGradW) cuda_buf_free(dGradW, trans_gw);
+    if (dGradB) cuda_buf_free(dGradB, trans_gb);
+    cuda_pool_reset();
 
     if (!ok) {
         fprintf(stderr, "[tinyfin][cuda] conv2d backward failed; falling back to CPU\n");
@@ -819,14 +917,19 @@ static Tensor *cuda_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     int blocks = (total + threads - 1) / threads;
 
     float *dX = NULL, *dW = NULL, *dB = NULL, *dOut = NULL;
-    if (!cuda_ok(cudaMalloc((void **)&dX, bytes_x), "cudaMalloc conv2d X")) goto fail;
-    if (!cuda_ok(cudaMalloc((void **)&dW, bytes_w), "cudaMalloc conv2d W")) goto fail;
-    if (!cuda_ok(cudaMalloc((void **)&dOut, bytes_out), "cudaMalloc conv2d out")) goto fail;
+    int trans_x = 0, trans_w = 0, trans_b = 0, trans_out = 0;
+    dX = (float *)cuda_buf_alloc(bytes_x, &trans_x);
+    if (!dX) goto fail;
+    dW = (float *)cuda_buf_alloc(bytes_w, &trans_w);
+    if (!dW) goto fail;
+    dOut = (float *)cuda_buf_alloc(bytes_out, &trans_out);
+    if (!dOut) goto fail;
     if (!cuda_ok(cudaMemcpy(dX, input->data, bytes_x, cudaMemcpyHostToDevice), "cudaMemcpy conv2d X")) goto fail;
     if (!cuda_ok(cudaMemcpy(dW, weight->data, bytes_w, cudaMemcpyHostToDevice), "cudaMemcpy conv2d W")) goto fail;
     if (bias) {
         size_t bytes_b = (size_t)bias->size * sizeof(float);
-        if (!cuda_ok(cudaMalloc((void **)&dB, bytes_b), "cudaMalloc conv2d bias")) goto fail;
+        dB = (float *)cuda_buf_alloc(bytes_b, &trans_b);
+        if (!dB) goto fail;
         if (!cuda_ok(cudaMemcpy(dB, bias->data, bytes_b, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bias")) goto fail;
     }
 
@@ -835,7 +938,11 @@ static Tensor *cuda_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     if (!cuda_ok(cudaGetLastError(), "conv2d kernel launch")) goto fail;
     if (!cuda_ok(cudaMemcpy(out->data, dOut, bytes_out, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d out")) goto fail;
 
-    cudaFree(dX); cudaFree(dW); cudaFree(dOut); if (dB) cudaFree(dB);
+    cuda_buf_free(dX, trans_x);
+    cuda_buf_free(dW, trans_w);
+    cuda_buf_free(dOut, trans_out);
+    if (dB) cuda_buf_free(dB, trans_b);
+    cuda_pool_reset();
 
     if (out->requires_grad) {
         AutogradNode *n = (AutogradNode *)malloc(sizeof(*n));
@@ -859,10 +966,11 @@ static Tensor *cuda_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     return out;
 
 fail:
-    if (dX) cudaFree(dX);
-    if (dW) cudaFree(dW);
-    if (dOut) cudaFree(dOut);
-    if (dB) cudaFree(dB);
+    if (dX) cuda_buf_free(dX, trans_x);
+    if (dW) cuda_buf_free(dW, trans_w);
+    if (dOut) cuda_buf_free(dOut, trans_out);
+    if (dB) cuda_buf_free(dB, trans_b);
+    cuda_pool_reset();
     tensor_free(out);
     return NULL;
 }

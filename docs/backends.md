@@ -2,6 +2,8 @@
 
 The backend registry (`backend.h`) lets tinyfin dispatch heavy ops (matmul/conv2d/elementwise) to alternative engines while retaining a CPU fallback.
 
+See `docs/backend_support_matrix.md` for the ops x backend support table.
+
 ## Available backends
 - `cpu` (default): always registered; runs all ops on host.
 - `cuda`: optional; currently provides matmul, broadcast-aware add/mul, and conv2d with backward handled on CUDA (inputs/outputs still live in host memory). Enable via `ENABLE_CUDA`/`TINYFIN_ENABLE_CUDA`.
@@ -15,6 +17,7 @@ CUDA build/run quickstart:
 - Run with CUDA backend: `PYTHONPATH=python TINYFIN_BACKEND=cuda python3 examples/perf_profile.py cuda 512 512 512 20`
 - Confirm local bindings: `PYTHONPATH=python python3 -c "import tinyfin; print(tinyfin.__file__)"`
 - Note: CUDA elementwise add/mul broadcast path assumes contiguous inputs and will fall back to CPU if tensors are non-contiguous (e.g., views from transpose/permute).
+- Optional: `TINYFIN_CUDA_RESIDENT=1` enables a simple CUDA buffer pool to reduce repeated allocations.
 - Parity checks: `tests/python/test_backend_parity.py` (forward) and `tests/python/test_backend_parity_backward.py` (backward).
 
 Python helpers:

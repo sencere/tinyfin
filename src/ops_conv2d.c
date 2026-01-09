@@ -4,6 +4,9 @@
 #include "backend.h"
 #include "scratch.h"
 #include <stdlib.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 /* Expect input: [N, C_in, H, W]
    weight: [C_out, C_in, KH, KW]
@@ -182,44 +185,97 @@ Tensor *tensor_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     out->dtype = weight->dtype;
     tensor_set_dtype(out, weight->dtype);
 
-    for (int n_i = 0; n_i < N; n_i++) {
-        for (int oc = 0; oc < C_out; oc++) {
-            for (int ho = 0; ho < Hout; ho++) {
-                for (int wo = 0; wo < Wout; wo++) {
-                    if (out->dtype == DTYPE_FLOAT32) {
-                        float sum = 0.0f;
-                        for (int ic = 0; ic < C_in; ic++) {
-                            for (int kh = 0; kh < KH; kh++) {
-                                for (int kw = 0; kw < KW; kw++) {
-                                    size_t w_idx = ((size_t)oc*C_in + ic)*KH*KW + kh*KW + kw;
-                                    int xi_h = ho + kh;
-                                    int xi_w = wo + kw;
-                                    size_t x_idx = ((size_t)n_i*C_in + ic)*H*W + xi_h*W + xi_w;
-                                    sum += tensor_get_f32_at(input, x_idx) * tensor_get_f32_at(weight, w_idx);
+#ifdef _OPENMP
+    int threads = 1;
+    const char *env = getenv("TINYFIN_THREADS");
+    if (env) {
+        int t = atoi(env);
+        if (t > 1) threads = t;
+    }
+    if (threads > 1) {
+#pragma omp parallel for collapse(2) num_threads(threads)
+        for (int n_i = 0; n_i < N; n_i++) {
+            for (int oc = 0; oc < C_out; oc++) {
+                for (int ho = 0; ho < Hout; ho++) {
+                    for (int wo = 0; wo < Wout; wo++) {
+                        if (out->dtype == DTYPE_FLOAT32) {
+                            float sum = 0.0f;
+                            for (int ic = 0; ic < C_in; ic++) {
+                                for (int kh = 0; kh < KH; kh++) {
+                                    for (int kw = 0; kw < KW; kw++) {
+                                        size_t w_idx = ((size_t)oc*C_in + ic)*KH*KW + kh*KW + kw;
+                                        int xi_h = ho + kh;
+                                        int xi_w = wo + kw;
+                                        size_t x_idx = ((size_t)n_i*C_in + ic)*H*W + xi_h*W + xi_w;
+                                        sum += tensor_get_f32_at(input, x_idx) * tensor_get_f32_at(weight, w_idx);
+                                    }
                                 }
                             }
-                        }
-                        if (bias) sum += tensor_get_f32_at(bias, oc);
-                        size_t out_idx = ((size_t)n_i*C_out + oc)*Hout*Wout + ho*Wout + wo;
-                        tensor_set_f32_at(out, out_idx, sum);
-                    } else {
-                        double sum = 0.0;
-                        for (int ic = 0; ic < C_in; ic++) {
-                            for (int kh = 0; kh < KH; kh++) {
-                                for (int kw = 0; kw < KW; kw++) {
-                                    size_t w_idx = ((size_t)oc*C_in + ic)*KH*KW + kh*KW + kw;
-                                    int xi_h = ho + kh;
-                                    int xi_w = wo + kw;
-                                    size_t x_idx = ((size_t)n_i*C_in + ic)*H*W + xi_h*W + xi_w;
-                                    sum += tensor_get_f64_at(input, x_idx) * tensor_get_f64_at(weight, w_idx);
+                            if (bias) sum += tensor_get_f32_at(bias, oc);
+                            size_t out_idx = ((size_t)n_i*C_out + oc)*Hout*Wout + ho*Wout + wo;
+                            tensor_set_f32_at(out, out_idx, sum);
+                        } else {
+                            double sum = 0.0;
+                            for (int ic = 0; ic < C_in; ic++) {
+                                for (int kh = 0; kh < KH; kh++) {
+                                    for (int kw = 0; kw < KW; kw++) {
+                                        size_t w_idx = ((size_t)oc*C_in + ic)*KH*KW + kh*KW + kw;
+                                        int xi_h = ho + kh;
+                                        int xi_w = wo + kw;
+                                        size_t x_idx = ((size_t)n_i*C_in + ic)*H*W + xi_h*W + xi_w;
+                                        sum += tensor_get_f64_at(input, x_idx) * tensor_get_f64_at(weight, w_idx);
+                                    }
                                 }
                             }
+                            if (bias) sum += tensor_get_f64_at(bias, oc);
+                            size_t out_idx = ((size_t)n_i*C_out + oc)*Hout*Wout + ho*Wout + wo;
+                            tensor_set_f64_at(out, out_idx, sum);
                         }
-                        if (bias) sum += tensor_get_f64_at(bias, oc);
-                        size_t out_idx = ((size_t)n_i*C_out + oc)*Hout*Wout + ho*Wout + wo;
-                        tensor_set_f64_at(out, out_idx, sum);
                     }
-                    
+                }
+            }
+        }
+    } else
+#endif
+    {
+        for (int n_i = 0; n_i < N; n_i++) {
+            for (int oc = 0; oc < C_out; oc++) {
+                for (int ho = 0; ho < Hout; ho++) {
+                    for (int wo = 0; wo < Wout; wo++) {
+                        if (out->dtype == DTYPE_FLOAT32) {
+                            float sum = 0.0f;
+                            for (int ic = 0; ic < C_in; ic++) {
+                                for (int kh = 0; kh < KH; kh++) {
+                                    for (int kw = 0; kw < KW; kw++) {
+                                        size_t w_idx = ((size_t)oc*C_in + ic)*KH*KW + kh*KW + kw;
+                                        int xi_h = ho + kh;
+                                        int xi_w = wo + kw;
+                                        size_t x_idx = ((size_t)n_i*C_in + ic)*H*W + xi_h*W + xi_w;
+                                        sum += tensor_get_f32_at(input, x_idx) * tensor_get_f32_at(weight, w_idx);
+                                    }
+                                }
+                            }
+                            if (bias) sum += tensor_get_f32_at(bias, oc);
+                            size_t out_idx = ((size_t)n_i*C_out + oc)*Hout*Wout + ho*Wout + wo;
+                            tensor_set_f32_at(out, out_idx, sum);
+                        } else {
+                            double sum = 0.0;
+                            for (int ic = 0; ic < C_in; ic++) {
+                                for (int kh = 0; kh < KH; kh++) {
+                                    for (int kw = 0; kw < KW; kw++) {
+                                        size_t w_idx = ((size_t)oc*C_in + ic)*KH*KW + kh*KW + kw;
+                                        int xi_h = ho + kh;
+                                        int xi_w = wo + kw;
+                                        size_t x_idx = ((size_t)n_i*C_in + ic)*H*W + xi_h*W + xi_w;
+                                        sum += tensor_get_f64_at(input, x_idx) * tensor_get_f64_at(weight, w_idx);
+                                    }
+                                }
+                            }
+                            if (bias) sum += tensor_get_f64_at(bias, oc);
+                            size_t out_idx = ((size_t)n_i*C_out + oc)*Hout*Wout + ho*Wout + wo;
+                            tensor_set_f64_at(out, out_idx, sum);
+                        }
+                    }
                 }
             }
         }
