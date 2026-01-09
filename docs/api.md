@@ -11,6 +11,7 @@ Stable namespaces:
 - `tinyfin.scheduler`: `StepLR`, `ExponentialLR`, `LinearWarmupLR`
 - `tinyfin.callbacks`: `LoggingCallback`, `CheckpointCallback`
 - Autograd toggles: `no_grad`, `set_retain_graph_default(retain)`, `get_retain_graph_default()`
+- Graph helpers: `export_graph(tensor, path)`, `export_graph_ir(tensor)` (nodes/edges), `const_fold_ir(ir)`, `graph_cache_key(tensor)`, `graph_cache_run(fn, *args, **kwargs)`
 - Experimental helpers (gated by `TINYFIN_ENABLE_HIGHER_ORDER=1`): `tinyfin.vjp` (vector-Jacobian product; returns `y` and `grad_x` numpy copy), `tinyfin.jvp` (finite-difference JVP), and `tinyfin.hvp` (finite-difference Hessian-vector product).
 - Checkpointing: `tinyfin.utils.save_checkpoint(path, tensors, optimizer=None, scheduler=None, metadata=None)` and `load_checkpoint(path, optimizer=None, scheduler=None, strict=True|False)` with magic/version + checksum validation.
 
@@ -24,6 +25,7 @@ Env toggles:
 - New tensor ops: `transpose` (2D), `permute` (custom order), `concat`, `stack`, `pad2d`, and Python-level `split`.
 - Backend helpers: `backend_name()` (defaults to `cpu`), `backend_set(name)` (CPU default; optional CUDA backend when built with `ENABLE_CUDA=1` and selected via env or API)
 - Env toggles: `TINYFIN_BACKEND` to pick a registered backend (`cuda` when built with CUDA); `TINYFIN_THREADS` to enable OpenMP parallel matmul (if compiled with OpenMP).
+- Higher-order scope: `vjp` uses a single backward pass with `retain_graph`; `jvp`/`hvp` are finite-difference approximations that allocate extra tensors and can be slow or numerically sensitive. Use them for experiments and validation, not production training loops.
 
 Common patterns:
 ```python

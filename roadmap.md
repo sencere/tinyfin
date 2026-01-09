@@ -31,19 +31,19 @@
 ### Milestone 5 — Higher-Order Autograd (Planned)
 - Persistent tape gate, VJP/JVP/HVP helpers, finite-diff checks, scoped to experiments.
 - Acceptance:
-  - [ ] Toggleable tape retention mode with tests.
-  - [ ] VJP/JVP/HVP helpers verified against finite-diff.
-  - [ ] Docs note limits (performance/memory) and scope.
+  - [x] Toggleable tape retention mode with tests.
+  - [x] VJP/JVP/HVP helpers verified against finite-diff.
+  - [x] Docs note limits (performance/memory) and scope.
 
-### Milestone 5.5 — JIT & Graph Compilation (Planned)
+### Milestone 5.5 — JIT & Graph Compilation (Done)
 - Graph capture/export API for compute graphs (forward/backward).
 - Simple graph compiler: op fusion passes, constant folding, shape-aware specialization.
 - Execution cache + fallback to eager mode.
 - Optional AOT export for static inference graphs.
 - Acceptance:
-  - [ ] Forward graph capture with deterministic op ordering.
-  - [ ] Basic fusion/const-folding pass with tests.
-  - [ ] Cache key includes shapes/dtypes/device; eager fallback verified.
+  - [x] Forward graph capture with deterministic op ordering.
+  - [x] Basic fusion/const-folding pass with tests.
+  - [x] Cache key includes shapes/dtypes/device; eager fallback verified.
 
 ## Acceleration
 
@@ -93,5 +93,7 @@
 - CUDA conv2d backward supported (host-resident tensors); BLAS dispatch works for CPU float32.
 - Tests cover schedulers, optimizer state, dataloader, callbacks, overflow/validation, backend selection, backend parity (CUDA), mixed-precision stub.
 - Perf profiler script validated on CPU and CUDA (when built).
+- Graph export now includes shape/dtype metadata; Python IR + cache-key helpers available.
+- Basic const-folding and cache helpers are available for experimentation.
 - Examples: MNIST/CIFAR/transformer, backend-aware CNN; perf profiler and CUDA demo available.
 - Ergonomics: `Tensor.from_numpy`, `Trainer.fit`, `MLP/Flatten/MaxPool2d`, `CrossEntropyLoss`, and dataset helpers (`TensorDataset/DataLoader.from_numpy`) to reduce example boilerplate.

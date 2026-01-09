@@ -1,4 +1,4 @@
-from .tinyfin import Tensor, load_shared_lib, no_grad, Profiler, assert_finite, bce_loss, cross_entropy_logits, sparse_categorical_crossentropy, categorical_crossentropy, relu, vjp, jvp, hvp, set_retain_graph_default, get_retain_graph_default, export_graph
+from .tinyfin import Tensor, load_shared_lib, no_grad, Profiler, assert_finite, bce_loss, cross_entropy_logits, sparse_categorical_crossentropy, categorical_crossentropy, relu, vjp, jvp, hvp, set_retain_graph_default, get_retain_graph_default, export_graph, export_graph_ir, const_fold_ir, graph_cache_key, graph_cache_get, graph_cache_put, graph_cache_clear, graph_cache_run
 from .tinyfin import SGDOpt, AdamOpt, RMSPropOpt
 from .nn import Parameter, Module, Sequential, BatchNorm, Dropout, Linear, Embedding, Flatten, MaxPool2d, Conv2d, ReLU, MLP, CrossEntropyLoss, RNNCell, RNN, LSTMCell, LSTM, MinGRUCell, MinGRU
 from .data import Dataset, Transform, Compose, Lambda, Normalize, RandomHorizontalFlip, RandomCrop, TensorDataset, DataLoader
@@ -62,6 +62,13 @@ __all__ = [
     "set_retain_graph_default",
     "get_retain_graph_default",
     "export_graph",
+    "export_graph_ir",
+    "const_fold_ir",
+    "graph_cache_key",
+    "graph_cache_get",
+    "graph_cache_put",
+    "graph_cache_clear",
+    "graph_cache_run",
     "tensor",
     "optim",
     "utils",

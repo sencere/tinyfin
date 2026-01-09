@@ -54,13 +54,18 @@ char *autograd_to_dot(Tensor *root) {
     if (!root || !root->grad_fn) return NULL;
     Tensor *nodes[4096];
     int n = 0;
-    /* gather nodes via DFS */
+    /* gather nodes via DFS; include leaves even without grad_fn */
     void gather(Tensor *t) {
-        if (!t || !t->grad_fn) return;
+        if (!t) return;
+        for (int i = 0; i < n; i++) {
+            if (nodes[i] == t) return;
+        }
+        if (n >= (int)(sizeof(nodes) / sizeof(nodes[0]))) return;
+        nodes[n++] = t;
+        if (!t->grad_fn) return;
         AutogradNode *node = t->grad_fn;
         if (node->visited) return;
         node->visited = 1;
-        nodes[n++] = t;
         for (size_t i = 0; i < node->n_inputs; i++) {
             gather(node->inputs[i]);
         }
@@ -72,11 +77,18 @@ char *autograd_to_dot(Tensor *root) {
     for (int i = 0; i < n; i++) {
         Tensor *t = nodes[i];
         AutogradNode *node = t->grad_fn;
-        buf_append(&b, "  \"t%p\" [label=\"%p device=%d requires_grad=%d\" shape=box];\n",
-                   (void*)t, (void*)t, t->device, t->requires_grad);
-        for (size_t j = 0; j < node->n_inputs; j++) {
-            Tensor *inp = node->inputs[j];
-            buf_append(&b, "  \"t%p\" -> \"t%p\";\n", (void*)t, (void*)inp);
+        buf_append(&b, "  \"t%p\" [label=\"%p device=%d dtype=%d shape=",
+                   (void*)t, (void*)t, t->device, t->dtype);
+        for (int di = 0; di < t->ndim; di++) {
+            buf_append(&b, "%d", t->shape[di]);
+            if (di + 1 < t->ndim) buf_append(&b, "x");
+        }
+        buf_append(&b, " requires_grad=%d\" shape=box];\n", t->requires_grad);
+        if (node) {
+            for (size_t j = 0; j < node->n_inputs; j++) {
+                Tensor *inp = node->inputs[j];
+                buf_append(&b, "  \"t%p\" -> \"t%p\";\n", (void*)t, (void*)inp);
+            }
         }
     }
     buf_append(&b, "}\n");

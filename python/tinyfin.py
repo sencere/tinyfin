@@ -1289,6 +1289,125 @@ def export_graph(tensor, path: str):
     if lib.py_free_str:
         lib.py_free_str(dot)
 
+def export_graph_ir(tensor):
+    """Return a simple IR (nodes/edges) parsed from the DOT graph."""
+    if not lib.py_autograd_to_dot:
+        raise RuntimeError("autograd graph export not available")
+    dot = lib.py_autograd_to_dot(tensor._ptr)
+    if not dot:
+        raise RuntimeError("failed to export graph")
+    dot_bytes = ctypes.cast(dot, ctypes.c_char_p).value or b""
+    if lib.py_free_str:
+        lib.py_free_str(dot)
+    text = dot_bytes.decode("utf-8", errors="replace")
+
+    nodes = {}
+    edges = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("\"t") and "label=" in line:
+            # "t0x..." [label="..."]
+            try:
+                node_id = line.split("\"")[1]
+            except Exception:
+                continue
+            label = line.split("label=\"", 1)[1].rsplit("\"", 1)[0]
+            info = {"id": node_id}
+            for part in label.split():
+                if "=" not in part:
+                    continue
+                key, val = part.split("=", 1)
+                if key == "device":
+                    info["device"] = int(val)
+                elif key == "dtype":
+                    info["dtype"] = int(val)
+                elif key == "requires_grad":
+                    info["requires_grad"] = int(val)
+                elif key == "shape":
+                    if val:
+                        info["shape"] = tuple(int(x) for x in val.split("x") if x)
+                    else:
+                        info["shape"] = tuple()
+            nodes[node_id] = info
+        elif "->" in line and line.startswith("\"t"):
+            parts = line.replace(";", "").split("\"")
+            if len(parts) >= 4:
+                edges.append((parts[1], parts[3]))
+    return {"nodes": list(nodes.values()), "edges": edges}
+
+def const_fold_ir(ir):
+    """Basic const-folding pass over IR nodes/edges."""
+    nodes = {n["id"]: dict(n) for n in ir.get("nodes", []) if "id" in n}
+    edges = list(ir.get("edges", []))
+    outgoing = {}
+    for src, dst in edges:
+        outgoing.setdefault(src, []).append(dst)
+
+    const_nodes = set()
+    for node_id, info in nodes.items():
+        if info.get("requires_grad") == 0:
+            const_nodes.add(node_id)
+
+    changed = True
+    while changed:
+        changed = False
+        for node_id, inputs in list(outgoing.items()):
+            if node_id in const_nodes:
+                continue
+            if all(inp in const_nodes for inp in inputs):
+                const_nodes.add(node_id)
+                nodes[node_id]["const_folded"] = True
+                outgoing[node_id] = []
+                changed = True
+
+    new_edges = [(src, dst) for src, dst in edges if dst in outgoing.get(src, [])]
+    return {"nodes": list(nodes.values()), "edges": new_edges}
+
+_GRAPH_CACHE = {}
+
+def graph_cache_get(key):
+    return _GRAPH_CACHE.get(key)
+
+def graph_cache_put(key, value):
+    _GRAPH_CACHE[key] = value
+    return value
+
+def graph_cache_clear():
+    _GRAPH_CACHE.clear()
+
+def graph_cache_key(tensor):
+    """Hash graph nodes/edges including shape/dtype/device for cache keys."""
+    import hashlib
+    ir = export_graph_ir(tensor)
+    nodes = sorted(ir["nodes"], key=lambda n: n.get("id", ""))
+    edges = sorted(ir["edges"])
+    payload = []
+    for n in nodes:
+        payload.append(
+            (
+                n.get("id"),
+                n.get("device"),
+                n.get("dtype"),
+                n.get("shape"),
+                n.get("requires_grad"),
+            )
+        )
+    payload.append(("edges", edges))
+    h = hashlib.sha256(repr(payload).encode("utf-8"))
+    return h.hexdigest()
+
+def graph_cache_run(fn, *args, **kwargs):
+    """Run eagerly and return cached result if key already exists."""
+    out = fn(*args, **kwargs)
+    key = graph_cache_key(out)
+    cached = _GRAPH_CACHE.get(key)
+    if cached is not None:
+        return cached, True
+    _GRAPH_CACHE[key] = out
+    return out, False
+
 def set_retain_graph_default(retain: bool):
     """Control whether Tensor.backward frees the graph by default."""
     if lib.py_autograd_set_retain_default:
