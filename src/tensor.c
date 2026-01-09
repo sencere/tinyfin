@@ -1,4 +1,5 @@
 #include "tensor.h"
+#include "scratch.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -181,7 +182,7 @@ void tensor_reduce_sum_broadcast(Tensor *grad, const Tensor *original, Tensor *o
     if (!grad || !original || !out) return;
     for (size_t i = 0; i < out->size; i++) out->data[i] = 0.0f;
 
-    int *index = (int *)malloc(sizeof(int) * grad->ndim);
+    int *index = (int *)scratch_alloc(sizeof(int) * grad->ndim);
     if (!index) return;
 
     for (size_t i = 0; i < grad->size; i++) {
@@ -199,7 +200,7 @@ void tensor_reduce_sum_broadcast(Tensor *grad, const Tensor *original, Tensor *o
         out->data[orig_offset] += grad->data[i];
     }
 
-    free(index);
+    scratch_reset();
 }
 
 /********************

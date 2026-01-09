@@ -18,15 +18,35 @@ static void pad2d_bwd(AutogradNode *node) {
     int pad_h = ctx->pad_h, pad_w = ctx->pad_w;
     int N = x->shape[0], C = x->shape[1], H = x->shape[2], W = x->shape[3];
     int Hout = out->shape[2], Wout = out->shape[3];
-    for (int n = 0; n < N; n++) {
-        for (int c = 0; c < C; c++) {
-            for (int h = 0; h < H; h++) {
-                for (int w = 0; w < W; w++) {
+    if (x->dtype == DTYPE_FLOAT32) {
+        for (int n = 0; n < N; n++) {
+            for (int c = 0; c < C; c++) {
+                size_t out_base = ((size_t)n * C + c) * Hout * Wout;
+                size_t in_base = ((size_t)n * C + c) * H * W;
+                for (int h = 0; h < H; h++) {
                     int oh = h + pad_h;
-                    int ow = w + pad_w;
-                    size_t out_idx = ((size_t)n*C + c)*Hout*Wout + oh*Wout + ow;
-                    size_t x_idx = ((size_t)n*C + c)*H*W + h*W + w;
-                    x->grad->data[x_idx] += out->grad->data[out_idx];
+                    size_t out_row = out_base + (size_t)oh * Wout + pad_w;
+                    size_t in_row = in_base + (size_t)h * W;
+                    for (int w = 0; w < W; w++) {
+                        x->grad->data[in_row + (size_t)w] += out->grad->data[out_row + (size_t)w];
+                    }
+                }
+            }
+        }
+    } else {
+        for (int n = 0; n < N; n++) {
+            for (int c = 0; c < C; c++) {
+                size_t out_base = ((size_t)n * C + c) * Hout * Wout;
+                size_t in_base = ((size_t)n * C + c) * H * W;
+                for (int h = 0; h < H; h++) {
+                    int oh = h + pad_h;
+                    size_t out_row = out_base + (size_t)oh * Wout + pad_w;
+                    size_t in_row = in_base + (size_t)h * W;
+                    for (int w = 0; w < W; w++) {
+                        double prev = tensor_get_f64_at(x->grad, in_row + (size_t)w);
+                        double add = tensor_get_f64_at(out->grad, out_row + (size_t)w);
+                        tensor_set_f64_at(x->grad, in_row + (size_t)w, prev + add);
+                    }
                 }
             }
         }
@@ -48,18 +68,36 @@ Tensor *tensor_pad2d(Tensor *input, int pad_h, int pad_w, float value) {
     out->requires_grad = input->requires_grad;
     out->dtype = input->dtype;
     tensor_set_dtype(out, input->dtype);
-    /* fill with value */
-    for (size_t i = 0; i < out->size; i++) out->data[i] = value;
+    if (input->dtype == DTYPE_FLOAT32) {
+        /* fill with value */
+        for (size_t i = 0; i < out->size; i++) out->data[i] = value;
 
-    for (int n = 0; n < N; n++) {
-        for (int c = 0; c < C; c++) {
-            for (int h = 0; h < H; h++) {
-                for (int w = 0; w < W; w++) {
+        for (int n = 0; n < N; n++) {
+            for (int c = 0; c < C; c++) {
+                size_t out_base = ((size_t)n * C + c) * Hout * Wout;
+                size_t in_base = ((size_t)n * C + c) * H * W;
+                for (int h = 0; h < H; h++) {
                     int oh = h + pad_h;
-                    int ow = w + pad_w;
-                    size_t out_idx = ((size_t)n*C + c)*Hout*Wout + oh*Wout + ow;
-                    size_t in_idx = ((size_t)n*C + c)*H*W + h*W + w;
-                    out->data[out_idx] = input->data[in_idx];
+                    size_t out_row = out_base + (size_t)oh * Wout + pad_w;
+                    size_t in_row = in_base + (size_t)h * W;
+                    memcpy(out->data + out_row, input->data + in_row, sizeof(float) * (size_t)W);
+                }
+            }
+        }
+    } else {
+        for (size_t i = 0; i < out->size; i++) tensor_set_f64_at(out, i, (double)value);
+
+        for (int n = 0; n < N; n++) {
+            for (int c = 0; c < C; c++) {
+                size_t out_base = ((size_t)n * C + c) * Hout * Wout;
+                size_t in_base = ((size_t)n * C + c) * H * W;
+                for (int h = 0; h < H; h++) {
+                    int oh = h + pad_h;
+                    size_t out_row = out_base + (size_t)oh * Wout + pad_w;
+                    size_t in_row = in_base + (size_t)h * W;
+                    for (int w = 0; w < W; w++) {
+                        tensor_set_f64_at(out, out_row + (size_t)w, tensor_get_f64_at(input, in_row + (size_t)w));
+                    }
                 }
             }
         }

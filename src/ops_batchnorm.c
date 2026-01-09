@@ -37,8 +37,9 @@ static void batchnorm_bwd(AutogradNode *n) {
         float db = 0.0f, dg = 0.0f;
         /* iterate over N and spatial */
         for (int n_i = 0; n_i < N; n_i++) {
+            size_t base = ((size_t)n_i * C + c) * inner;
             for (size_t s = 0; s < inner; s++) {
-                size_t flat = (((size_t)n_i*C + c)*inner) + s;
+                size_t flat = base + s;
                 float go = out->grad->data[flat];
                 float xv = x->data[flat];
                 float xn = (xv - mu) * inv;
@@ -55,8 +56,9 @@ static void batchnorm_bwd(AutogradNode *n) {
 
         /* compute dx (naive formula) */
         for (int n_i = 0; n_i < N; n_i++) {
+            size_t base = ((size_t)n_i * C + c) * inner;
             for (size_t s = 0; s < inner; s++) {
-                size_t flat = (((size_t)n_i*C + c)*inner) + s;
+                size_t flat = base + s;
                 float xv = x->data[flat];
                 float xn = (xv - mu) * inv;
                 float go = out->grad->data[flat];
@@ -86,28 +88,34 @@ Tensor *tensor_batchnorm(Tensor *x, Tensor *gamma, Tensor *beta, float eps, int 
     if (training) {
         for (int c = 0; c < C; c++) {
             float mu = 0.0f;
-            for (int n_i = 0; n_i < N; n_i++) for (size_t s = 0; s < inner; s++) {
-                size_t flat = (((size_t)n_i*C + c)*inner) + s;
-                mu += x->data[flat];
+            for (int n_i = 0; n_i < N; n_i++) {
+                size_t base = ((size_t)n_i * C + c) * inner;
+                for (size_t s = 0; s < inner; s++) {
+                    mu += x->data[base + s];
+                }
             }
             mu /= (float)M;
             mean->data[c] = mu;
             (void)0;
             float vv = 0.0f;
-            for (int n_i = 0; n_i < N; n_i++) for (size_t s = 0; s < inner; s++) {
-                size_t flat = (((size_t)n_i*C + c)*inner) + s;
-                float d = x->data[flat] - mu;
-                vv += d * d;
+            for (int n_i = 0; n_i < N; n_i++) {
+                size_t base = ((size_t)n_i * C + c) * inner;
+                for (size_t s = 0; s < inner; s++) {
+                    float d = x->data[base + s] - mu;
+                    vv += d * d;
+                }
             }
             vv /= (float)M;
             var->data[c] = vv;
 
             float inv = 1.0f / sqrtf(vv + eps);
-            for (int n_i = 0; n_i < N; n_i++) for (size_t s = 0; s < inner; s++) {
-                size_t flat = (((size_t)n_i*C + c)*inner) + s;
-                float xn = (x->data[flat] - mu) * inv;
-                float scaled = xn * (gamma ? gamma->data[c] : 1.0f) + (beta ? beta->data[c] : 0.0f);
-                out->data[flat] = scaled;
+            for (int n_i = 0; n_i < N; n_i++) {
+                size_t base = ((size_t)n_i * C + c) * inner;
+                for (size_t s = 0; s < inner; s++) {
+                    float xn = (x->data[base + s] - mu) * inv;
+                    float scaled = xn * (gamma ? gamma->data[c] : 1.0f) + (beta ? beta->data[c] : 0.0f);
+                    out->data[base + s] = scaled;
+                }
             }
 
             /* update running stats if provided */
@@ -128,11 +136,13 @@ Tensor *tensor_batchnorm(Tensor *x, Tensor *gamma, Tensor *beta, float eps, int 
             mean->data[c] = mu;
             var->data[c] = vv;
             float inv = 1.0f / sqrtf(vv + eps);
-            for (int n_i = 0; n_i < N; n_i++) for (size_t s = 0; s < inner; s++) {
-                size_t flat = (((size_t)n_i*C + c)*inner) + s;
-                float xn = (x->data[flat] - mu) * inv;
-                float scaled = xn * (gamma ? gamma->data[c] : 1.0f) + (beta ? beta->data[c] : 0.0f);
-                out->data[flat] = scaled;
+            for (int n_i = 0; n_i < N; n_i++) {
+                size_t base = ((size_t)n_i * C + c) * inner;
+                for (size_t s = 0; s < inner; s++) {
+                    float xn = (x->data[base + s] - mu) * inv;
+                    float scaled = xn * (gamma ? gamma->data[c] : 1.0f) + (beta ? beta->data[c] : 0.0f);
+                    out->data[base + s] = scaled;
+                }
             }
         }
     }

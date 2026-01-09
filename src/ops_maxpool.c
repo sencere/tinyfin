@@ -16,16 +16,21 @@ static void maxpool_bwd(AutogradNode *n) {
     int k = *((int *)n->inputs[2]);
     int Hout = out->shape[2], Wout = out->shape[3];
 
-    for (int n_i = 0; n_i < N; n_i++)
-    for (int c = 0; c < C; c++)
-    for (int ho = 0; ho < Hout; ho++)
-    for (int wo = 0; wo < Wout; wo++) {
-        size_t oidx = ((size_t)n_i*C + c)*Hout*Wout + ho*Wout + wo;
-        int arg = (int)idx->data[oidx];
-        int ih = (arg / k) + ho * k;
-        int iw = (arg % k) + wo * k;
-        size_t xidx = ((size_t)n_i*C + c)*H*W + ih*W + iw;
-        x->grad->data[xidx] += out->grad->data[oidx];
+    for (int n_i = 0; n_i < N; n_i++) {
+        for (int c = 0; c < C; c++) {
+            size_t out_base = ((size_t)n_i * C + c) * Hout * Wout;
+            size_t in_base = ((size_t)n_i * C + c) * H * W;
+            for (int ho = 0; ho < Hout; ho++) {
+                for (int wo = 0; wo < Wout; wo++) {
+                    size_t oidx = out_base + (size_t)ho * Wout + wo;
+                    int arg = (int)idx->data[oidx];
+                    int ih = (arg / k) + ho * k;
+                    int iw = (arg % k) + wo * k;
+                    size_t xidx = in_base + (size_t)ih * W + iw;
+                    x->grad->data[xidx] += out->grad->data[oidx];
+                }
+            }
+        }
     }
 }
 
@@ -40,21 +45,30 @@ Tensor *tensor_maxpool2d(Tensor *x, int kernel_size) {
 
     Tensor *idx = tensor_new(4, out_shape); /* store argmax within kernel */
 
-    for (int n_i = 0; n_i < N; n_i++)
-    for (int c = 0; c < C; c++)
-    for (int ho = 0; ho < Hout; ho++)
-    for (int wo = 0; wo < Wout; wo++) {
-        float best = -INFINITY; int arg = 0;
-        for (int kh = 0; kh < k; kh++) for (int kw = 0; kw < k; kw++) {
-            int ih = ho * k + kh; int iw = wo * k + kw;
-            size_t xidx = ((size_t)n_i*C + c)*H*W + ih*W + iw;
-            float v = x->data[xidx];
-            int pos = kh * k + kw;
-            if (v > best) { best = v; arg = pos; }
+    for (int n_i = 0; n_i < N; n_i++) {
+        for (int c = 0; c < C; c++) {
+            size_t out_base = ((size_t)n_i * C + c) * Hout * Wout;
+            size_t in_base = ((size_t)n_i * C + c) * H * W;
+            for (int ho = 0; ho < Hout; ho++) {
+                for (int wo = 0; wo < Wout; wo++) {
+                    float best = -INFINITY;
+                    int arg = 0;
+                    for (int kh = 0; kh < k; kh++) {
+                        for (int kw = 0; kw < k; kw++) {
+                            int ih = ho * k + kh;
+                            int iw = wo * k + kw;
+                            size_t xidx = in_base + (size_t)ih * W + iw;
+                            float v = x->data[xidx];
+                            int pos = kh * k + kw;
+                            if (v > best) { best = v; arg = pos; }
+                        }
+                    }
+                    size_t oidx = out_base + (size_t)ho * Wout + wo;
+                    out->data[oidx] = best;
+                    idx->data[oidx] = (float)arg;
+                }
+            }
         }
-        size_t oidx = ((size_t)n_i*C + c)*Hout*Wout + ho*Wout + wo;
-        out->data[oidx] = best;
-        idx->data[oidx] = (float)arg;
     }
 
     if (out->requires_grad) {

@@ -139,19 +139,40 @@ static Tensor *tensor_matmul_cpu(Tensor *a, Tensor *b) {
     } else
 #endif
     {
-        for (int i = 0; i < M; i++) {
-            profiler_begin_op("matmul_inner");
-            for (int j = 0; j < N; j++) {
-                float sum = 0.0f;
+        float *tmp = (float *)scratch_alloc((size_t)K * sizeof(float));
+        if (!tmp) {
+            for (int i = 0; i < M; i++) {
+                profiler_begin_op("matmul_inner");
+                for (int j = 0; j < N; j++) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < K; k++) {
+                        int off_a = i * a_s0 + k * a_s1;
+                        int off_b = k * b_s0 + j * b_s1;
+                        sum += a->data[off_a] * b->data[off_b];
+                    }
+                    int off_out = i * out_s0 + j * out_s1;
+                    out->data[off_out] = sum;
+                }
+                profiler_end_op();
+            }
+        } else {
+            for (int i = 0; i < M; i++) {
+                profiler_begin_op("matmul_inner");
                 for (int k = 0; k < K; k++) {
                     int off_a = i * a_s0 + k * a_s1;
-                    int off_b = k * b_s0 + j * b_s1;
-                    sum += a->data[off_a] * b->data[off_b];
+                    tmp[k] = a->data[off_a];
                 }
-                int off_out = i * out_s0 + j * out_s1;
-                out->data[off_out] = sum;
+                for (int j = 0; j < N; j++) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < K; k++) {
+                        int off_b = k * b_s0 + j * b_s1;
+                        sum += tmp[k] * b->data[off_b];
+                    }
+                    int off_out = i * out_s0 + j * out_s1;
+                    out->data[off_out] = sum;
+                }
+                profiler_end_op();
             }
-            profiler_end_op();
         }
     }
 

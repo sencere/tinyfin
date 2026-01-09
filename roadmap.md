@@ -2,47 +2,90 @@
 
 **Goal:** TinyTorch-like core: tensors + autograd + NN layers + optimizers + usable Python API.
 
-## Milestone 0–3 (Done/Mostly Done)
+**Next up (one sprint):**
+- CUDA conv2d backward or scratch allocator (pick one primary).
+- Backend parity tests (CPU vs CUDA) for matmul/add/mul/conv2d.
+- Backend fallback/selection semantics documented + enforced in tests.
+
+## Core Engine
+
+### Milestone 0–3 (Done/Mostly Done)
 - Core tensors (`float32/64`, device field), elementwise/broadcast ops, first-order autograd.
 - NN stack: Linear/Conv2D/Embedding/Sequential, activations, losses, DataLoader, schedulers, optimizers (SGD/Momentum/Adam/RMSProp) with state save/load.
 - Training utilities: callbacks, Trainer, gradient clipping/accumulation, no_grad/retain_graph.
+- Acceptance:
+  - [x] Core tensor ops + broadcasting pass basic C/Python tests.
+  - [x] Autograd works on small graphs with numerical grad checks.
+  - [x] Minimal training loop runs end-to-end (loss decreases).
 
-## Milestone 4 — Stability & Ergonomics (Done)
+### Milestone 4 — Stability & Ergonomics (Done)
 - Memory safety: ASAN/UBSAN build targets, valgrind helper, ownership notes; refcount/arena (TBD).
 - Numerical stability: overflow/log clamp tests (C + Python), finiteness checks (core done; broaden).
 - API ergonomics: clearer errors for common losses, method/functional aliases (`relu`, `dot`, `item`), chainable ops/function+method APIs.
 - API convenience: random constructors, init helpers, `flatten` alias, `relu` binding, loss aliases for common names.
+- Acceptance:
+  - [x] ASAN/UBSAN builds run a minimal test set without errors.
+  - [x] Overflow/NaN guards tested in C + Python.
+  - [x] Error messages for common loss misuse validated in tests.
 
-## Milestone 5 — Higher-Order Autograd (Planned)
+### Milestone 5 — Higher-Order Autograd (Planned)
 - Persistent tape gate, VJP/JVP/HVP helpers, finite-diff checks, scoped to experiments.
+- Acceptance:
+  - [ ] Toggleable tape retention mode with tests.
+  - [ ] VJP/JVP/HVP helpers verified against finite-diff.
+  - [ ] Docs note limits (performance/memory) and scope.
 
-## Milestone 5.5 — JIT & Graph Compilation (Planned)
+### Milestone 5.5 — JIT & Graph Compilation (Planned)
 - Graph capture/export API for compute graphs (forward/backward).
 - Simple graph compiler: op fusion passes, constant folding, shape-aware specialization.
 - Execution cache + fallback to eager mode.
 - Optional AOT export for static inference graphs.
+- Acceptance:
+  - [ ] Forward graph capture with deterministic op ordering.
+  - [ ] Basic fusion/const-folding pass with tests.
+  - [ ] Cache key includes shapes/dtypes/device; eager fallback verified.
 
-## Milestone 6 — Performance & Device
+## Acceleration
+
+### Milestone 6 — Performance & Device
 - Backend registry (`TINYFIN_BACKEND`); CPU default. CUDA: matmul, broadcast add/mul, conv2d (inference, CPU backward). BLAS: matmul/conv2d. OpenGL/Vulkan stubs registered.
 - Scratch allocator to reduce temps; guarded in-place add/mul. Optional OpenMP matmul.
 - Next: CUDA conv2d backward + resident buffers; extend multithreading/vectorization.
+- Acceptance:
+  - [ ] Backend selection works via env + API with tests.
+  - [ ] CPU vs CUDA parity tests for matmul/add/mul/conv2d (fwd).
+  - [ ] Perf profiler runs on CPU + CUDA when built.
 
-## Milestone 7 — Hardening
+### Milestone 7 — Hardening
 - Versioning/deprecation strategy, serialization format/validation, property-based tests, broader overflow/grad checks.
 - Docs/tutorials, contributor guide, release process, platform/Python support matrix.
 - Mixed precision: stubbed autocast in Python; real backend support TBD.
+- Acceptance:
+  - [ ] Versioning/deprecation policy documented.
+  - [ ] Serialization format validated with fuzz/prop tests.
+  - [ ] Platform/Python support matrix published.
 
-## Milestone 8 — Near-Term Sequencing (Done)
+## Product Surface
+
+### Milestone 8 — Near-Term Sequencing (Done)
 - API polish (errors/type hints), DataLoader workers + prefetch, callbacks/hooks, dataset/transform ecosystem.
 - Versioned checkpoints (tensor + optimizer/scheduler metadata).
 - RNN layers: vanilla RNN, LSTM, and minGRU (core ops + Python API), with examples and basic tests.
 - Coverage checklist: CNNs, MLPs, and RNNs are all first-class (docs + examples + tests).
+- Acceptance:
+  - [x] DataLoader workers/prefetch covered by tests.
+  - [x] Checkpoints round-trip optimizer/scheduler metadata.
+  - [x] RNN/LSTM/minGRU examples run and basic tests pass.
 
-## Milestone 9 — Engine Expansion & Docs
+### Milestone 9 — Engine Expansion & Docs
 - Backends: bring CUDA to parity (conv2d backward, mixed precision, device residency); prototype real OpenGL/Vulkan kernels.
 - Contracts/tests: backend selection/fallback semantics; integration tests across CPU/CUDA/OpenGL/Vulkan.
 - Examples: backend-aware demos (MNIST/CIFAR CNN, transformer/BERT-style, text gen, perf profiler).
 - Docs: backend/engine notes, mixed-precision guide, expanded API/how-to content.
+- Acceptance:
+  - [ ] Backend support matrix with ops x backends.
+  - [ ] Integration tests run across CPU/CUDA (where available).
+  - [ ] Docs/tutorials cover backend selection and mixed precision.
 
 ## Current Status
 - Autograd and NN stack stable; device/shape validation on core ops.

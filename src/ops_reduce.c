@@ -1,6 +1,7 @@
 #include "ops_reduce.h"
 #include "tensor.h"
 #include "autograd.h"
+#include "scratch.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -28,14 +29,17 @@ static void sum_bwd(AutogradNode *n) {
 Tensor *tensor_sum(Tensor *t) {
     // FIX: tensor_new expects a pointer to the shape array, not an integer.
     // Create a shape array for a scalar output [1].
-    int *shape = (int *)malloc(sizeof(int) * 1);
+    int *shape = (int *)scratch_alloc(sizeof(int));
     if (!shape) return NULL;
     shape[0] = 1;
-    
+
     Tensor *out = tensor_new(1, shape);
-    if (!out) { free(shape); return NULL; }
+    if (!out) {
+        scratch_reset();
+        return NULL;
+    }
     out->requires_grad = t->requires_grad;
-    free(shape); // Free the temporary shape array
+    scratch_reset();
     
     sum_fwd(t, NULL, out);
     
@@ -76,13 +80,16 @@ static void mean_bwd(AutogradNode *n) {
 Tensor *tensor_mean(Tensor *t) {
     // FIX: tensor_new expects a pointer to the shape array.
     // Create a shape array for a scalar output [1].
-    int *shape = (int *)malloc(sizeof(int) * 1);
+    int *shape = (int *)scratch_alloc(sizeof(int));
     if (!shape) return NULL;
     shape[0] = 1;
-    
+
     Tensor *out = tensor_new(1, shape);
-    if (!out) { free(shape); return NULL; }
-    free(shape); // Free the temporary shape array
+    if (!out) {
+        scratch_reset();
+        return NULL;
+    }
+    scratch_reset();
     out->requires_grad = t->requires_grad;
     
     mean_fwd(t, NULL, out);
@@ -105,11 +112,11 @@ static void min_bwd(AutogradNode *n);
 
 Tensor *tensor_max(Tensor *t) {
     if (!t) return NULL;
-    int *shape = (int *)malloc(sizeof(int));
+    int *shape = (int *)scratch_alloc(sizeof(int));
     if (!shape) return NULL;
     shape[0] = 1;
     Tensor *out = tensor_new(1, shape);
-    free(shape);
+    scratch_reset();
     if (!out) return NULL;
 
     float m = t->data[0];
@@ -144,8 +151,12 @@ static void max_bwd(AutogradNode *n) {
 
 Tensor *tensor_min(Tensor *t) {
     if (!t) return NULL;
-    int *shape = (int *)malloc(sizeof(int)); if (!shape) return NULL; shape[0] = 1;
-    Tensor *out = tensor_new(1, shape); free(shape); if (!out) return NULL;
+    int *shape = (int *)scratch_alloc(sizeof(int));
+    if (!shape) return NULL;
+    shape[0] = 1;
+    Tensor *out = tensor_new(1, shape);
+    scratch_reset();
+    if (!out) return NULL;
     float m = t->data[0];
     for (size_t i = 1; i < t->size; i++) if (t->data[i] < m) m = t->data[i];
     out->data[0] = m;
@@ -176,8 +187,12 @@ static void min_bwd(AutogradNode *n) {
 
 Tensor *tensor_argmax(Tensor *t) {
     if (!t) return NULL;
-    int *shape = (int *)malloc(sizeof(int)); if (!shape) return NULL; shape[0] = 1;
-    Tensor *out = tensor_new(1, shape); free(shape); if (!out) return NULL;
+    int *shape = (int *)scratch_alloc(sizeof(int));
+    if (!shape) return NULL;
+    shape[0] = 1;
+    Tensor *out = tensor_new(1, shape);
+    scratch_reset();
+    if (!out) return NULL;
     size_t idx = 0; float m = t->data[0];
     for (size_t i = 1; i < t->size; i++) if (t->data[i] > m) { m = t->data[i]; idx = i; }
     out->data[0] = (float)idx; /* return index as float */
@@ -186,8 +201,12 @@ Tensor *tensor_argmax(Tensor *t) {
 
 Tensor *tensor_argmin(Tensor *t) {
     if (!t) return NULL;
-    int *shape = (int *)malloc(sizeof(int)); if (!shape) return NULL; shape[0] = 1;
-    Tensor *out = tensor_new(1, shape); free(shape); if (!out) return NULL;
+    int *shape = (int *)scratch_alloc(sizeof(int));
+    if (!shape) return NULL;
+    shape[0] = 1;
+    Tensor *out = tensor_new(1, shape);
+    scratch_reset();
+    if (!out) return NULL;
     size_t idx = 0; float m = t->data[0];
     for (size_t i = 1; i < t->size; i++) if (t->data[i] < m) { m = t->data[i]; idx = i; }
     out->data[0] = (float)idx;

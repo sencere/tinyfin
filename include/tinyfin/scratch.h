@@ -12,7 +12,7 @@ void *scratch_alloc(size_t bytes);
 /* Helper to check if a pointer came from the arena (vs malloc fallback). */
 int scratch_is_from_arena(const void *p);
 
-/* Release arena-backed storage (non-arena allocations are freed immediately).
+/* Release arena-backed storage and free any malloc fallbacks.
  * Call after each op or forward pass to reuse the arena. */
 void scratch_reset(void);
 

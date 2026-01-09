@@ -21,12 +21,13 @@ static void layernorm_bwd(AutogradNode *n) {
     if (!x->grad) x->grad = tensor_zeros(x->ndim, x->shape);
 
     for (size_t v = 0; v < nvec; v++) {
+        size_t base = v * (size_t)D;
         float mu = mean->data[v];
         float vv = var->data[v];
         float inv = 1.0f / sqrtf(vv + eps);
         float db = 0.0f, dg = 0.0f;
         for (int d = 0; d < D; d++) {
-            size_t idx = v*D + d;
+            size_t idx = base + (size_t)d;
             float go = out->grad->data[idx];
             float xv = x->data[idx];
             float xn = (xv - mu) * inv;
@@ -34,12 +35,12 @@ static void layernorm_bwd(AutogradNode *n) {
             if (gamma) dg += go * xn;
         }
         for (int d = 0; d < D; d++) {
-            size_t idx = v*D + d;
+            size_t idx = base + (size_t)d;
             float xv = x->data[idx];
             float xn = (xv - mu) * inv;
             float go = out->grad->data[idx];
             float gxn = (gamma ? gamma->data[d] : 1.0f) * go;
-            float dx = (1.0f / D) * inv * (D * gxn - db - xn * dg);
+            float dx = (1.0f / (float)D) * inv * ((float)D * gxn - db - xn * dg);
             x->grad->data[idx] += dx;
         }
     }
@@ -58,16 +59,20 @@ Tensor *tensor_layernorm(Tensor *x, Tensor *gamma, Tensor *beta, float eps) {
     Tensor *var = tensor_zeros(1, (int[]){(int)nvec});
 
     for (size_t v = 0; v < nvec; v++) {
+        size_t base = v * (size_t)D;
         float mu = 0.0f;
-        for (int d = 0; d < D; d++) mu += x->data[v*D + d];
+        for (int d = 0; d < D; d++) mu += x->data[base + (size_t)d];
         mu /= (float)D; mean->data[v] = mu;
         float vv = 0.0f;
-        for (int d = 0; d < D; d++) { float t = x->data[v*D + d] - mu; vv += t*t; }
+        for (int d = 0; d < D; d++) {
+            float t = x->data[base + (size_t)d] - mu;
+            vv += t * t;
+        }
         vv /= (float)D; var->data[v] = vv;
         float inv = 1.0f / sqrtf(vv + eps);
         for (int d = 0; d < D; d++) {
-            float xn = (x->data[v*D + d] - mu) * inv;
-            out->data[v*D + d] = xn * (gamma ? gamma->data[d] : 1.0f) + (beta ? beta->data[d] : 0.0f);
+            float xn = (x->data[base + (size_t)d] - mu) * inv;
+            out->data[base + (size_t)d] = xn * (gamma ? gamma->data[d] : 1.0f) + (beta ? beta->data[d] : 0.0f);
         }
     }
 

@@ -24,9 +24,10 @@ static void softmax_forward(Tensor *logits, Tensor *out) {
             out->data[i] = e;
             s += e;
         }
+        float inv_s = 1.0f / s;
         // normalize
         for (size_t i = 0; i < C; i++)
-            out->data[i] /= s;
+            out->data[i] *= inv_s;
         return;
     }
 
@@ -47,10 +48,11 @@ static void softmax_forward(Tensor *logits, Tensor *out) {
             out->data[b*C + j] = e;
             s += e;
         }
+        float inv_s = 1.0f / s;
 
         // normalize
         for (size_t j = 0; j < C; j++)
-            out->data[b*C + j] /= s;
+            out->data[b*C + j] *= inv_s;
     }
 }
 

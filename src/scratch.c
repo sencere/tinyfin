@@ -7,6 +7,24 @@ static void *arena = NULL;
 static size_t arena_size = 0;
 static size_t arena_offset = 0;
 
+typedef struct ScratchFallback {
+    void *ptr;
+    struct ScratchFallback *next;
+} ScratchFallback;
+
+static ScratchFallback *fallback_head = NULL;
+
+static void scratch_fallback_free_all(void) {
+    ScratchFallback *node = fallback_head;
+    while (node) {
+        ScratchFallback *next = node->next;
+        free(node->ptr);
+        free(node);
+        node = next;
+    }
+    fallback_head = NULL;
+}
+
 int scratch_is_from_arena(const void *p) {
     if (!arena || !p) return 0;
     const char *base = (const char *)arena;
@@ -38,14 +56,25 @@ void *scratch_alloc(size_t bytes) {
     }
     /* fallback to malloc */
     void *p = malloc(bytes);
+    if (!p) return NULL;
+    ScratchFallback *node = (ScratchFallback *)malloc(sizeof(*node));
+    if (!node) {
+        free(p);
+        return NULL;
+    }
+    node->ptr = p;
+    node->next = fallback_head;
+    fallback_head = node;
     return p;
 }
 
 void scratch_reset(void) {
     arena_offset = 0;
+    scratch_fallback_free_all();
 }
 
 void scratch_shutdown(void) {
+    scratch_fallback_free_all();
     if (arena) free(arena);
     arena = NULL;
     arena_size = 0;

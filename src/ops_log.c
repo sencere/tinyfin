@@ -11,11 +11,9 @@ static void log_bwd(AutogradNode *n) {
     if (!a->grad) a->grad = tensor_zeros(a->ndim, a->shape);
     for (size_t i=0;i<out->size;i++) {
         float x = a->data[i];
-        float unclamped = x;
-        if (x < LOG_EPS) x = LOG_EPS;
         float go = out->grad->data[i];
         /* Stop gradient for inputs clamped to eps to avoid huge/NaN grads. */
-        float contrib = (unclamped < LOG_EPS) ? 0.0f : (go / x);
+        float contrib = (x < LOG_EPS) ? 0.0f : (go / x);
         a->grad->data[i] += contrib;
     }
 }

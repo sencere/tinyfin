@@ -34,11 +34,15 @@ static Tensor *reduce_to_target(const Tensor *grad_out, const Tensor *target) {
     }
 
     int out_ndim = grad_out->ndim;
-    int *idx_out = (int *)malloc(sizeof(int) * out_ndim);
+    int *idx_out = (int *)scratch_alloc(sizeof(int) * out_ndim);
     if (!idx_out) { tensor_free(g); return NULL; }
 
-    int *idx_t = (int *)malloc(sizeof(int) * target->ndim);
-    if (!idx_t) { free(idx_out); tensor_free(g); return NULL; }
+    int *idx_t = (int *)scratch_alloc(sizeof(int) * target->ndim);
+    if (!idx_t) {
+        scratch_reset();
+        tensor_free(g);
+        return NULL;
+    }
 
     for (size_t i = 0; i < grad_out->size; i++) {
         unravel_index((int)i, grad_out->shape, out_ndim, idx_out);
@@ -52,8 +56,7 @@ static Tensor *reduce_to_target(const Tensor *grad_out, const Tensor *target) {
         g->data[off_t] += grad_out->data[i];
     }
 
-    free(idx_out);
-    free(idx_t);
+    scratch_reset();
     return g;
 }
 
@@ -68,7 +71,7 @@ static void mul_fwd(Tensor *a, Tensor *b, Tensor *out) {
     Tensor ea = tensor_expand(a, out_shape, out->ndim);
     Tensor eb = tensor_expand(b, out_shape, out->ndim);
 
-    int *idx = (int *)malloc(sizeof(int) * out->ndim);
+    int *idx = (int *)scratch_alloc(sizeof(int) * out->ndim);
     if (!idx) { free(out_shape); return; }
 
     for (size_t i = 0; i < out->size; i++) {
@@ -86,7 +89,7 @@ static void mul_fwd(Tensor *a, Tensor *b, Tensor *out) {
         }
     }
 
-    free(idx);
+    scratch_reset();
     free(out_shape);
 }
 
@@ -103,7 +106,7 @@ static void mul_bwd(AutogradNode *n) {
     Tensor ea = tensor_expand(n->a, out_shape, out->ndim);
     Tensor eb = tensor_expand(n->b, out_shape, out->ndim);
 
-    int *idx = (int *)malloc(sizeof(int) * out->ndim);
+    int *idx = (int *)scratch_alloc(sizeof(int) * out->ndim);
     if (!idx) { free(out_shape); return; }
 
     int _record = autograd_get_enabled();
@@ -148,7 +151,7 @@ static void mul_bwd(AutogradNode *n) {
 
     if (gA_bcast) tensor_free(gA_bcast);
     if (gB_bcast) tensor_free(gB_bcast);
-    free(idx);
+    scratch_reset();
     free(out_shape);
 }
 

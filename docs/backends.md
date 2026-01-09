@@ -10,6 +10,13 @@ The backend registry (`backend.h`) lets tinyfin dispatch heavy ops (matmul/conv2
 
 Select a backend via env `TINYFIN_BACKEND` or `tinyfin.backend_set("name")` in Python. If an op is unsupported, it falls back to the CPU implementation.
 
+CUDA build/run quickstart:
+- Build with CUDA support (requires `nvcc` on PATH): `make -j2 libtinyfin.so ENABLE_CUDA=1`
+- Run with CUDA backend: `PYTHONPATH=python TINYFIN_BACKEND=cuda python3 examples/perf_profile.py cuda 512 512 512 20`
+- Confirm local bindings: `PYTHONPATH=python python3 -c "import tinyfin; print(tinyfin.__file__)"`
+- Note: CUDA elementwise add/mul broadcast path assumes contiguous inputs and will fall back to CPU if tensors are non-contiguous (e.g., views from transpose/permute).
+- Parity checks: `tests/python/test_backend_parity.py` (forward) and `tests/python/test_backend_parity_backward.py` (backward).
+
 Python helpers:
 ```python
 from tinyfin import backend_set, backend_name

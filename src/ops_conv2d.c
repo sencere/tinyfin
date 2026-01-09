@@ -164,42 +164,20 @@ Tensor *tensor_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     out->dtype = weight->dtype;
     tensor_set_dtype(out, weight->dtype);
 
-    /* scratch buffer for sliding window of input */
-    size_t window_size = (size_t)C_in * KH * KW;
-    float *win_f32 = NULL;
-    double *win_f64 = NULL;
-    if (out->dtype == DTYPE_FLOAT32) {
-        win_f32 = (float*)scratch_alloc(window_size * sizeof(float));
-        if (!win_f32) win_f32 = (float*)malloc(window_size * sizeof(float));
-    } else {
-        win_f64 = (double*)scratch_alloc(window_size * sizeof(double));
-        if (!win_f64) win_f64 = (double*)malloc(window_size * sizeof(double));
-    }
-
     for (int n_i = 0; n_i < N; n_i++) {
         for (int oc = 0; oc < C_out; oc++) {
             for (int ho = 0; ho < Hout; ho++) {
                 for (int wo = 0; wo < Wout; wo++) {
                     if (out->dtype == DTYPE_FLOAT32) {
-                        /* gather window */
-                        size_t idx = 0;
-                        for (int ic = 0; ic < C_in; ic++) {
-                            for (int kh = 0; kh < KH; kh++) {
-                                for (int kw = 0; kw < KW; kw++) {
-                                    int xi_h = ho + kh;
-                                    int xi_w = wo + kw;
-                                    size_t x_idx = ((size_t)n_i*C_in + ic)*H*W + xi_h*W + xi_w;
-                                    win_f32[idx++] = tensor_get_f32_at(input, x_idx);
-                                }
-                            }
-                        }
                         float sum = 0.0f;
-                        idx = 0;
                         for (int ic = 0; ic < C_in; ic++) {
                             for (int kh = 0; kh < KH; kh++) {
                                 for (int kw = 0; kw < KW; kw++) {
                                     size_t w_idx = ((size_t)oc*C_in + ic)*KH*KW + kh*KW + kw;
-                                    sum += win_f32[idx++] * tensor_get_f32_at(weight, w_idx);
+                                    int xi_h = ho + kh;
+                                    int xi_w = wo + kw;
+                                    size_t x_idx = ((size_t)n_i*C_in + ic)*H*W + xi_h*W + xi_w;
+                                    sum += tensor_get_f32_at(input, x_idx) * tensor_get_f32_at(weight, w_idx);
                                 }
                             }
                         }
@@ -207,24 +185,15 @@ Tensor *tensor_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
                         size_t out_idx = ((size_t)n_i*C_out + oc)*Hout*Wout + ho*Wout + wo;
                         tensor_set_f32_at(out, out_idx, sum);
                     } else {
-                        size_t idx = 0;
-                        for (int ic = 0; ic < C_in; ic++) {
-                            for (int kh = 0; kh < KH; kh++) {
-                                for (int kw = 0; kw < KW; kw++) {
-                                    int xi_h = ho + kh;
-                                    int xi_w = wo + kw;
-                                    size_t x_idx = ((size_t)n_i*C_in + ic)*H*W + xi_h*W + xi_w;
-                                    win_f64[idx++] = tensor_get_f64_at(input, x_idx);
-                                }
-                            }
-                        }
                         double sum = 0.0;
-                        idx = 0;
                         for (int ic = 0; ic < C_in; ic++) {
                             for (int kh = 0; kh < KH; kh++) {
                                 for (int kw = 0; kw < KW; kw++) {
                                     size_t w_idx = ((size_t)oc*C_in + ic)*KH*KW + kh*KW + kw;
-                                    sum += win_f64[idx++] * tensor_get_f64_at(weight, w_idx);
+                                    int xi_h = ho + kh;
+                                    int xi_w = wo + kw;
+                                    size_t x_idx = ((size_t)n_i*C_in + ic)*H*W + xi_h*W + xi_w;
+                                    sum += tensor_get_f64_at(input, x_idx) * tensor_get_f64_at(weight, w_idx);
                                 }
                             }
                         }
@@ -237,9 +206,6 @@ Tensor *tensor_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
             }
         }
     }
-
-    if (win_f32 && !scratch_is_from_arena(win_f32)) free(win_f32);
-    if (win_f64 && !scratch_is_from_arena(win_f64)) free(win_f64);
     scratch_reset();
 
     if (out->requires_grad) {

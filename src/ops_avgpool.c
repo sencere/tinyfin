@@ -12,18 +12,26 @@ static void avgpool_bwd(AutogradNode *n) {
     int N = x->shape[0]; int C = x->shape[1]; int H = x->shape[2]; int W = x->shape[3];
     int k = *((int *)n->inputs[1]);
     int Hout = out->shape[2], Wout = out->shape[3];
-    float scale = 1.0f / (k * k);
+    float scale = 1.0f / (float)(k * k);
 
-    for (int n_i = 0; n_i < N; n_i++)
-    for (int c = 0; c < C; c++)
-    for (int ho = 0; ho < Hout; ho++)
-    for (int wo = 0; wo < Wout; wo++) {
-        size_t oidx = ((size_t)n_i*C + c)*Hout*Wout + ho*Wout + wo;
-        float go = out->grad->data[oidx] * scale;
-        for (int kh = 0; kh < k; kh++) for (int kw = 0; kw < k; kw++) {
-            int ih = ho * k + kh; int iw = wo * k + kw;
-            size_t xidx = ((size_t)n_i*C + c)*H*W + ih*W + iw;
-            x->grad->data[xidx] += go;
+    for (int n_i = 0; n_i < N; n_i++) {
+        for (int c = 0; c < C; c++) {
+            size_t out_base = ((size_t)n_i * C + c) * Hout * Wout;
+            size_t in_base = ((size_t)n_i * C + c) * H * W;
+            for (int ho = 0; ho < Hout; ho++) {
+                for (int wo = 0; wo < Wout; wo++) {
+                    size_t oidx = out_base + (size_t)ho * Wout + wo;
+                    float go = out->grad->data[oidx] * scale;
+                    for (int kh = 0; kh < k; kh++) {
+                        for (int kw = 0; kw < k; kw++) {
+                            int ih = ho * k + kh;
+                            int iw = wo * k + kw;
+                            size_t xidx = in_base + (size_t)ih * W + iw;
+                            x->grad->data[xidx] += go;
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -37,18 +45,27 @@ Tensor *tensor_avgpool2d(Tensor *x, int kernel_size) {
     Tensor *out = tensor_new(4, out_shape);
     if (!out) return NULL;
 
-    for (int n_i = 0; n_i < N; n_i++)
-    for (int c = 0; c < C; c++)
-    for (int ho = 0; ho < Hout; ho++)
-    for (int wo = 0; wo < Wout; wo++) {
-        float sum = 0.0f;
-        for (int kh = 0; kh < k; kh++) for (int kw = 0; kw < k; kw++) {
-            int ih = ho * k + kh; int iw = wo * k + kw;
-            size_t xidx = ((size_t)n_i*C + c)*H*W + ih*W + iw;
-            sum += x->data[xidx];
+    float scale = 1.0f / (float)(k * k);
+    for (int n_i = 0; n_i < N; n_i++) {
+        for (int c = 0; c < C; c++) {
+            size_t out_base = ((size_t)n_i * C + c) * Hout * Wout;
+            size_t in_base = ((size_t)n_i * C + c) * H * W;
+            for (int ho = 0; ho < Hout; ho++) {
+                for (int wo = 0; wo < Wout; wo++) {
+                    float sum = 0.0f;
+                    for (int kh = 0; kh < k; kh++) {
+                        for (int kw = 0; kw < k; kw++) {
+                            int ih = ho * k + kh;
+                            int iw = wo * k + kw;
+                            size_t xidx = in_base + (size_t)ih * W + iw;
+                            sum += x->data[xidx];
+                        }
+                    }
+                    size_t oidx = out_base + (size_t)ho * Wout + wo;
+                    out->data[oidx] = sum * scale;
+                }
+            }
         }
-        size_t oidx = ((size_t)n_i*C + c)*Hout*Wout + ho*Wout + wo;
-        out->data[oidx] = sum / (k * k);
     }
 
     if (out->requires_grad) {

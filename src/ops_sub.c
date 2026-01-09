@@ -1,6 +1,7 @@
 #include "ops_sub.h"
 #include "tensor.h"
 #include "autograd.h"
+#include "scratch.h"
 #include <stdlib.h>
 
 /* ---------- small local indexing helpers (copied from ops_add) ---------- */
@@ -24,11 +25,15 @@ static Tensor *reduce_to_target(const Tensor *grad_out, const Tensor *target) {
     if (!g) return NULL;
 
     int out_ndim = grad_out->ndim;
-    int *idx_out = (int *)malloc(sizeof(int) * out_ndim);
+    int *idx_out = (int *)scratch_alloc(sizeof(int) * out_ndim);
     if (!idx_out) { tensor_free(g); return NULL; }
 
-    int *idx_t = (int *)malloc(sizeof(int) * target->ndim);
-    if (!idx_t) { free(idx_out); tensor_free(g); return NULL; }
+    int *idx_t = (int *)scratch_alloc(sizeof(int) * target->ndim);
+    if (!idx_t) {
+        scratch_reset();
+        tensor_free(g);
+        return NULL;
+    }
 
     for (size_t i = 0; i < grad_out->size; i++) {
         unravel_index((int)i, grad_out->shape, out_ndim, idx_out);
@@ -43,8 +48,7 @@ static Tensor *reduce_to_target(const Tensor *grad_out, const Tensor *target) {
         g->data[off_t] += grad_out->data[i];
     }
 
-    free(idx_out);
-    free(idx_t);
+    scratch_reset();
     return g;
 }
 
@@ -59,7 +63,7 @@ static void sub_fwd(Tensor *a, Tensor *b, Tensor *out) {
     Tensor ea = tensor_expand(a, out_shape, out->ndim);
     Tensor eb = tensor_expand(b, out_shape, out->ndim);
 
-    int *idx = (int *)malloc(sizeof(int) * out->ndim);
+    int *idx = (int *)scratch_alloc(sizeof(int) * out->ndim);
     if (!idx) { free(out_shape); return; }
 
     for (size_t i = 0; i < out->size; i++) {
@@ -77,7 +81,7 @@ static void sub_fwd(Tensor *a, Tensor *b, Tensor *out) {
         }
     }
 
-    free(idx);
+    scratch_reset();
     free(out_shape);
 }
 
@@ -157,7 +161,7 @@ int tensor_sub_(Tensor *a, Tensor *b) {
 
     /* Refuse in-place when either tensor requires grad. */
     if (a->requires_grad || b->requires_grad) return 0;
-    int *idx = (int *)malloc(sizeof(int) * a->ndim);
+    int *idx = (int *)scratch_alloc(sizeof(int) * a->ndim);
     if (!idx) return 0;
 
     for (size_t i = 0; i < a->size; i++) {
@@ -175,6 +179,6 @@ int tensor_sub_(Tensor *a, Tensor *b) {
         }
     }
 
-    free(idx);
+    scratch_reset();
     return 1;
 }

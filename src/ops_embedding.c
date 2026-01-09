@@ -1,6 +1,7 @@
 #include "ops_embedding.h"
 #include "tensor.h"
 #include "autograd.h"
+#include "scratch.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -45,13 +46,16 @@ Tensor *tensor_embedding(Tensor *weights, Tensor *indices) {
 
     /* build output shape = indices.shape + [D] */
     int out_ndim = indices->ndim + 1;
-    int *out_shape = (int *)malloc(sizeof(int) * out_ndim);
+    int *out_shape = (int *)scratch_alloc(sizeof(int) * out_ndim);
     if (!out_shape) return NULL;
     for (int i = 0; i < indices->ndim; i++) out_shape[i] = indices->shape[i];
     out_shape[out_ndim - 1] = D;
 
     Tensor *out = tensor_new(out_ndim, out_shape);
-    if (!out) { free(out_shape); return NULL; }
+    if (!out) {
+        scratch_reset();
+        return NULL;
+    }
     out->requires_grad = weights->requires_grad;
     out->dtype = weights->dtype;
     tensor_set_dtype(out, weights->dtype);
@@ -59,20 +63,32 @@ Tensor *tensor_embedding(Tensor *weights, Tensor *indices) {
     /* fill forward: for each linear position in indices, copy weights[idx, :]
        output is contiguous, so out->data layout is [n_indices, D] where n_indices = indices->size */
     size_t n_indices = indices->size;
-    for (size_t i = 0; i < n_indices; i++) {
-        int idx = (int)tensor_get_f32_at(indices, i);
-        if (idx < 0 || idx >= V) {
-            /* out-of-range -> zero vector */
-            for (int d = 0; d < D; d++) tensor_set_f32_at(out, i * D + d, 0.0f);
-            continue;
+    if (weights->dtype == DTYPE_FLOAT32) {
+        float *w = (float *)weights->raw_data;
+        float *o = (float *)out->raw_data;
+        for (size_t i = 0; i < n_indices; i++) {
+            int idx = (int)tensor_get_f32_at(indices, i);
+            if (idx < 0 || idx >= V) {
+                memset(o + i * (size_t)D, 0, sizeof(float) * (size_t)D);
+                continue;
+            }
+            memcpy(o + i * (size_t)D, w + (size_t)idx * (size_t)D, sizeof(float) * (size_t)D);
         }
-        for (int d = 0; d < D; d++) {
-            float v = tensor_get_f32_at(weights, (size_t)idx * D + d);
-            tensor_set_f32_at(out, i * D + d, v);
+    } else {
+        for (size_t i = 0; i < n_indices; i++) {
+            int idx = (int)tensor_get_f32_at(indices, i);
+            if (idx < 0 || idx >= V) {
+                for (int d = 0; d < D; d++) tensor_set_f64_at(out, i * (size_t)D + d, 0.0);
+                continue;
+            }
+            for (int d = 0; d < D; d++) {
+                double v = tensor_get_f64_at(weights, (size_t)idx * (size_t)D + d);
+                tensor_set_f64_at(out, i * (size_t)D + d, v);
+            }
         }
     }
 
-    free(out_shape);
+    scratch_reset();
 
     if (out->requires_grad) {
         AutogradNode *n = malloc(sizeof(*n));
