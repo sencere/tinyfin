@@ -61,7 +61,8 @@ Tensor *linear_op_forward(Tensor *x, Tensor *w, Tensor *b) {
         }
     }
 
-    if (x->requires_grad || w->requires_grad || b->requires_grad) {
+    y->requires_grad = (x->requires_grad || w->requires_grad || b->requires_grad);
+    if (y->requires_grad) {
         AutogradNode *n = malloc(sizeof(*n));
         n->out = y;
         n->a = x;
