@@ -14,32 +14,38 @@ static void linear_backward(AutogradNode *n) {
     int IN = x->shape[1];
     int OUT = w->shape[1];
 
-    // dX
-    for (int i = 0; i < B; i++) {
-        for (int j = 0; j < IN; j++) {
-            float g = 0.0f;
-            for (int k = 0; k < OUT; k++)
-                g += y->grad->data[i*OUT + k] * w->data[j*OUT + k];
-            x->grad->data[i*IN + j] += g;
+    if (x->requires_grad && x->grad) {
+        // dX
+        for (int i = 0; i < B; i++) {
+            for (int j = 0; j < IN; j++) {
+                float g = 0.0f;
+                for (int k = 0; k < OUT; k++)
+                    g += y->grad->data[i*OUT + k] * w->data[j*OUT + k];
+                x->grad->data[i*IN + j] += g;
+            }
         }
     }
 
-    // dW
-    for (int i = 0; i < IN; i++) {
+    if (w->requires_grad && w->grad) {
+        // dW
+        for (int i = 0; i < IN; i++) {
+            for (int j = 0; j < OUT; j++) {
+                float g = 0.0f;
+                for (int k = 0; k < B; k++)
+                    g += x->data[k*IN + i] * y->grad->data[k*OUT + j];
+                w->grad->data[i*OUT + j] += g;
+            }
+        }
+    }
+
+    if (b->requires_grad && b->grad) {
+        // dB
         for (int j = 0; j < OUT; j++) {
             float g = 0.0f;
             for (int k = 0; k < B; k++)
-                g += x->data[k*IN + i] * y->grad->data[k*OUT + j];
-            w->grad->data[i*OUT + j] += g;
+                g += y->grad->data[k*OUT + j];
+            b->grad->data[j] += g;
         }
-    }
-
-    // dB
-    for (int j = 0; j < OUT; j++) {
-        float g = 0.0f;
-        for (int k = 0; k < B; k++)
-            g += y->grad->data[k*OUT + j];
-        b->grad->data[j] += g;
     }
 }
 
