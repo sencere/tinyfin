@@ -1,8 +1,32 @@
 #include "tensor.h"
 #include "scratch.h"
+#include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
+static int tensor_default_device = DEVICE_CPU;
+
+static int tensor_parse_device(const char *value) {
+    if (!value || !*value) return DEVICE_CPU;
+    if (strcmp(value, "0") == 0) return DEVICE_CPU;
+    if (strcmp(value, "1") == 0) return DEVICE_GPU;
+    char buf[16];
+    size_t n = strlen(value);
+    if (n >= sizeof(buf)) n = sizeof(buf) - 1;
+    for (size_t i = 0; i < n; i++) buf[i] = (char)tolower((unsigned char)value[i]);
+    buf[n] = '\0';
+    if (strcmp(buf, "gpu") == 0 || strcmp(buf, "cuda") == 0) return DEVICE_GPU;
+    if (strcmp(buf, "cpu") == 0) return DEVICE_CPU;
+    return DEVICE_CPU;
+}
+
+__attribute__((constructor))
+static void tensor_default_device_init(void) {
+    const char *env = getenv("TINYFIN_DEVICE");
+    if (!env || !*env) env = getenv("TINYFIN_DEFAULT_DEVICE");
+    tensor_default_device = tensor_parse_device(env);
+}
 
 /********************
  * Constructors
@@ -30,7 +54,7 @@ Tensor *tensor_new(int ndim, const int *shape) {
     t->grad = NULL;
     t->requires_grad = 0;
     t->grad_fn = NULL;
-    t->device = 0; /* DEVICE_CPU */
+    t->device = tensor_default_device;
     t->dtype = DTYPE_FLOAT32;
 
     return t;
@@ -65,6 +89,15 @@ void tensor_set_device(Tensor *t, int device) {
 int tensor_get_device(const Tensor *t) {
     if (!t) return -1;
     return t->device;
+}
+
+void tensor_set_default_device(int device) {
+    if (device != DEVICE_CPU && device != DEVICE_GPU) return;
+    tensor_default_device = device;
+}
+
+int tensor_get_default_device(void) {
+    return tensor_default_device;
 }
 
 /********************

@@ -77,6 +77,8 @@ void tensor_reduce_sum_broadcast(Tensor *grad, const Tensor *original, Tensor *o
 /* device helpers */
 void tensor_set_device(Tensor *t, int device);
 int tensor_get_device(const Tensor *t);
+void tensor_set_default_device(int device);
+int tensor_get_default_device(void);
 
 /* DType helpers and element access (flat offset in elements) */
 int tensor_set_dtype(Tensor *t, int dtype);
