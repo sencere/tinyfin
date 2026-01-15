@@ -4,8 +4,47 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#ifdef TINYFIN_ENABLE_CUDA
+#include <cuda_runtime.h>
+#endif
 
 static int tensor_default_device = DEVICE_CPU;
+
+static size_t tensor_dtype_size(int dtype) {
+    return (dtype == DTYPE_FLOAT64) ? sizeof(double) : sizeof(float);
+}
+
+#ifdef TINYFIN_ENABLE_CUDA
+static int tensor_cuda_managed_enabled(void) {
+    const char *env = getenv("TINYFIN_CUDA_MANAGED");
+    if (!env) return 1;
+    return atoi(env) != 0;
+}
+#endif
+
+static void *tensor_alloc_storage(size_t bytes, int storage) {
+    if (bytes == 0) return NULL;
+#ifdef TINYFIN_ENABLE_CUDA
+    if (storage == STORAGE_CUDA_MANAGED) {
+        void *ptr = NULL;
+        if (cudaMallocManaged(&ptr, bytes, cudaMemAttachGlobal) != cudaSuccess) return NULL;
+        memset(ptr, 0, bytes);
+        return ptr;
+    }
+#endif
+    return calloc(1, bytes);
+}
+
+static void tensor_free_storage(void *ptr, int storage) {
+    if (!ptr) return;
+#ifdef TINYFIN_ENABLE_CUDA
+    if (storage == STORAGE_CUDA_MANAGED) {
+        cudaFree(ptr);
+        return;
+    }
+#endif
+    free(ptr);
+}
 
 static int tensor_parse_device(const char *value) {
     if (!value || !*value) return DEVICE_CPU;
@@ -47,7 +86,13 @@ Tensor *tensor_new(int ndim, const int *shape) {
     if (!t->strides) { free(t->shape); free(t); return NULL; }
     tensor_contiguous_strides(t->shape, ndim, t->strides);
 
-    t->raw_data = calloc(t->size, sizeof(float));
+    int storage = STORAGE_HOST;
+#ifdef TINYFIN_ENABLE_CUDA
+    if (tensor_default_device == DEVICE_GPU && tensor_cuda_managed_enabled()) {
+        storage = STORAGE_CUDA_MANAGED;
+    }
+#endif
+    t->raw_data = tensor_alloc_storage(t->size * sizeof(float), storage);
     if (!t->raw_data) { free(t->strides); free(t->shape); free(t); return NULL; }
     t->data = (float *)t->raw_data;
 
@@ -56,6 +101,7 @@ Tensor *tensor_new(int ndim, const int *shape) {
     t->grad_fn = NULL;
     t->device = tensor_default_device;
     t->dtype = DTYPE_FLOAT32;
+    t->storage = storage;
 
     return t;
 }
@@ -70,9 +116,9 @@ Tensor *tensor_new_like(Tensor *t, int requires_grad) {
         out->grad = tensor_zeros(out->ndim, out->shape);
         if (out->grad) out->grad->requires_grad = 0;
     }
-    out->device = t->device;
     out->dtype = t->dtype;
     tensor_set_dtype(out, t->dtype);
+    tensor_set_device(out, t->device);
     return out;
 }
 
@@ -82,8 +128,28 @@ Tensor *tensor_zeros(int ndim, const int *shape) {
 
 void tensor_set_device(Tensor *t, int device) {
     if (!t) return;
-    t->device = device;
-    if (t->grad) t->grad->device = device;
+    if (device != DEVICE_CPU && device != DEVICE_GPU) return;
+    if (t->device != device) {
+        int target_storage = STORAGE_HOST;
+#ifdef TINYFIN_ENABLE_CUDA
+        if (device == DEVICE_GPU && tensor_cuda_managed_enabled()) {
+            target_storage = STORAGE_CUDA_MANAGED;
+        }
+#endif
+        if (t->storage != target_storage) {
+            size_t bytes = t->size * tensor_dtype_size(t->dtype);
+            void *buf = tensor_alloc_storage(bytes, target_storage);
+            if (buf) {
+                memcpy(buf, t->raw_data, bytes);
+                tensor_free_storage(t->raw_data, t->storage);
+                t->raw_data = buf;
+                t->data = (float *)t->raw_data;
+                t->storage = target_storage;
+            }
+        }
+        t->device = device;
+    }
+    if (t->grad) tensor_set_device(t->grad, device);
 }
 
 int tensor_get_device(const Tensor *t) {
@@ -117,11 +183,12 @@ int tensor_set_dtype(Tensor *t, int dtype) {
     if ((int)t->dtype == dtype) return 1;
     /* Promote or reallocate buffer: only support promoting float32->float64 here. */
     if (dtype == DTYPE_FLOAT64 && t->dtype == DTYPE_FLOAT32) {
-        double *buf = (double *)malloc(sizeof(double) * t->size);
+        size_t bytes = sizeof(double) * t->size;
+        double *buf = (double *)tensor_alloc_storage(bytes, t->storage);
         if (!buf) return 0;
         /* copy existing float32 -> double */
         for (size_t i = 0; i < t->size; i++) buf[i] = (double)((float *)t->raw_data)[i];
-        free(t->raw_data);
+        tensor_free_storage(t->raw_data, t->storage);
         t->raw_data = buf;
         t->data = (float *)t->raw_data; /* keep float view but invalid for f64; callers should use f64 accessors */
         t->dtype = DTYPE_FLOAT64;
@@ -196,6 +263,8 @@ Tensor tensor_expand(const Tensor *t, const int *out_shape, int out_ndim) {
     r.grad = NULL;
     r.requires_grad = t->requires_grad;
     r.grad_fn = NULL;
+    r.device = t->device;
+    r.storage = t->storage;
 
     for (int i = 0; i < out_ndim; i++) {
         int src_i = i - (out_ndim - t->ndim);
@@ -324,7 +393,7 @@ int tensor_get_requires_grad(const Tensor *t) {
  * ********************/
 void tensor_free(Tensor *t) {
     if (!t) return;
-    if (t->raw_data) free(t->raw_data);
+    if (t->raw_data) tensor_free_storage(t->raw_data, t->storage);
     if (t->grad) tensor_free(t->grad);
     if (t->shape) free(t->shape);
     if (t->strides) free(t->strides);

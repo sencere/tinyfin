@@ -26,6 +26,9 @@ typedef struct Tensor {
 	 * compatibility; `raw_data` holds the allocated buffer (float/double).
 	 */
 	enum { DTYPE_FLOAT32 = 0, DTYPE_FLOAT64 = 1 } dtype;
+
+	/* Storage kind (host vs CUDA managed). */
+	int storage;
 } Tensor;
 
 /* Device constants */
@@ -35,6 +38,10 @@ typedef struct Tensor {
 /* DType constants (match enum in struct) */
 #define DTYPE_FLOAT32 0
 #define DTYPE_FLOAT64 1
+
+/* Storage kinds */
+#define STORAGE_HOST 0
+#define STORAGE_CUDA_MANAGED 1
 
 /***************
  * Constructors *

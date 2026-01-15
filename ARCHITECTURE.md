@@ -43,8 +43,8 @@ Each tensor contains:
 ### Device Semantics
 - Device is explicit and carried by tensors
 - Mixed-device ops are rejected
-- `DEVICE_GPU` is currently a logical placeholder
-- Future backends will provide real device kernels
+- `DEVICE_GPU` uses CUDA managed memory when CUDA is enabled
+- Future backends will extend device kernels and residency
 
 ---
 
@@ -154,7 +154,7 @@ Each tensor contains:
 
 - Backend registry (CPU default) with env selector `TINYFIN_BACKEND`; CPU always registered.
 - Backend hooks for `matmul/conv2d`; Python dispatch calls backend when tensors are on `DEVICE_GPU`.
-- Optional CUDA backend (build with `ENABLE_CUDA=1`) implements a naive matmul kernel; conv/elementwise currently fall back to CPU. BLAS/CUDA stubs exist for experimentation.
+- Optional CUDA backend (build with `ENABLE_CUDA=1`) implements matmul, add/mul, conv2d with CUDA managed-memory tensors to reduce host<->device copies. BLAS/CUDA stubs exist for experimentation.
 - Optional BLAS backend (build with `ENABLE_BLAS=1`) uses `cblas_sgemm` for matmul when tensors are on CPU.
 - Scratch arena to reduce allocations (env `TINYFIN_SCRATCH_BYTES`, per-op reset) used in matmul/conv.
 - OpenMP optional for matmul (`TINYFIN_THREADS`), default single-thread.

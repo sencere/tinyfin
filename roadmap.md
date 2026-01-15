@@ -5,7 +5,7 @@
 **Next up (one sprint):**
 - Scratch allocator follow-ups (size tuning, reuse instrumentation).
 - Backend parity tests: extend coverage beyond CUDA where available.
-- Backend residency: reduce host<->device copies for CUDA paths.
+- Backend residency follow-ups: prefetch tuning, broaden managed paths.
 
 ## Core Engine
 
@@ -48,7 +48,7 @@
 ## Acceleration
 
 ### Milestone 6 — Performance & Device (Done)
-- Backend registry (`TINYFIN_BACKEND`); CPU default. CUDA: matmul, broadcast add/mul, conv2d (backward on CUDA, host-resident tensors). BLAS: matmul/conv2d on CPU when selected. OpenGL/Vulkan stubs registered.
+- Backend registry (`TINYFIN_BACKEND`); CPU default. CUDA: matmul, broadcast add/mul, conv2d with managed-memory tensors to reduce host<->device copies. BLAS: matmul/conv2d on CPU when selected. OpenGL/Vulkan stubs registered.
 - Scratch allocator to reduce temps; guarded in-place add/mul. Optional OpenMP matmul.
 - Done: opt-in CUDA resident buffer pool; OpenMP conv2d forward.
 - Acceptance:
@@ -90,7 +90,8 @@
 ## Current Status
 - Autograd and NN stack stable; device/shape validation on core ops.
 - Backend selection works; CUDA/BLAS usable when built; GL/Vulkan stubs in place.
-- CUDA conv2d backward supported (host-resident tensors); BLAS dispatch works for CPU float32.
+- CUDA conv2d backward supported (managed-memory tensors); BLAS dispatch works for CPU float32.
+- CUDA managed-memory tensors reduce per-op host<->device copies (env: `TINYFIN_CUDA_MANAGED`).
 - CUDA resident buffer pool (opt-in) and OpenMP conv2d forward path added.
 - Tests cover schedulers, optimizer state, dataloader, callbacks, overflow/validation, backend selection, backend parity (CUDA), mixed-precision stub.
 - Perf profiler script validated on CPU and CUDA (when built).

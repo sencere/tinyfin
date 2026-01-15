@@ -197,6 +197,6 @@ Tensor *py_tensor_to_device(Tensor *t, int device) {
 	for (size_t i = 0; i < t->size; i++) {
 		tensor_set_f32_at(out, i, tensor_get_f32_at(t, i));
 	}
-	out->device = device;
+	tensor_set_device(out, device);
 	return out;
 }

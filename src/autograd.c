@@ -156,7 +156,7 @@ static void build_topo(Tensor *t, Tensor **topo, int *count) {
 static void ensure_grad(Tensor *t) {
     if (!t || !t->requires_grad) return;
     if (!t->grad) {
-        t->grad = tensor_zeros(t->ndim, t->shape);
+        t->grad = tensor_new_like(t, 0);
     }
 }
 
