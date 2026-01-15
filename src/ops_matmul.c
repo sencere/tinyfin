@@ -2,6 +2,7 @@
 #include "tensor.h"
 #include "autograd.h"
 #include "profiler.h"
+#include "graph.h"
 #include "backend.h"
 #include "scratch.h"
 #include <stdlib.h>
@@ -196,6 +197,11 @@ static Tensor *tensor_matmul_cpu(Tensor *a, Tensor *b) {
         Tensor_attach_gradients(out, n);
     }
 
+    {
+        Tensor *inputs[2] = {a, b};
+        graph_record_op(GRAPH_OP_MATMUL, out, inputs, 2);
+    }
+
     return out;
 }
 
@@ -207,7 +213,11 @@ Tensor *tensor_matmul(Tensor *a, Tensor *b) {
         Backend *bk = backend_get();
         if (bk && bk->matmul) {
             Tensor *out = bk->matmul(a, b);
-            if (out) return out;
+            if (out) {
+                Tensor *inputs[2] = {a, b};
+                graph_record_op(GRAPH_OP_MATMUL, out, inputs, 2);
+                return out;
+            }
         }
     }
     /* fallback to CPU implementation */

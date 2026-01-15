@@ -1,5 +1,6 @@
 #include "ops_activation.h"
 #include "autograd.h"
+#include "graph.h"
 #include <stdlib.h>
 #include <math.h>
 
@@ -36,6 +37,10 @@ Tensor *tensor_relu(Tensor *x) {
         n->inputs[0] = x;
         n->visited = 0;
         Tensor_attach_gradients(out, n);
+    }
+    {
+        Tensor *inputs[1] = {x};
+        graph_record_op(GRAPH_OP_RELU, out, inputs, 1);
     }
     return out;
 }

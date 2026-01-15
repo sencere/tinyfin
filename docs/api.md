@@ -15,6 +15,8 @@ Stable namespaces:
 - `tinyfin.callbacks`: `LoggingCallback`, `CheckpointCallback`
 - Autograd toggles: `no_grad`, `set_retain_graph_default(retain)`, `get_retain_graph_default()`
 - Graph helpers: `export_graph(tensor, path)`, `export_graph_ir(tensor)` (nodes/edges), `const_fold_ir(ir)`, `graph_cache_key(tensor)`, `graph_cache_run(fn, *args, **kwargs)`
+- Forward graph helpers (experimental): `graph_capture()` context, `capture_graph(fn, *args, **kwargs)`, `graph_signature(graph)`, `compile_graph(graph)`, `run_graph(plan, *inputs)`, `graph_exec_cache_run(fn, *args, **kwargs)`
+- C graph helpers (experimental): `capture_graph_c(fn, *args, **kwargs)`, `graph_compile_c(graph_ptr)`, `graph_run_c(plan_ptr, *inputs)`, `graph_cache_run_c(graph_ptr, *inputs)`
 - Experimental helpers (gated by `TINYFIN_ENABLE_HIGHER_ORDER=1`): `tinyfin.vjp` (vector-Jacobian product; returns `y` and `grad_x` numpy copy), `tinyfin.jvp` (finite-difference JVP), and `tinyfin.hvp` (finite-difference Hessian-vector product).
 - Checkpointing: `tinyfin.utils.save_checkpoint(path, tensors, optimizer=None, scheduler=None, metadata=None)` and `load_checkpoint(path, optimizer=None, scheduler=None, strict=True|False)` with magic/version + checksum validation.
 

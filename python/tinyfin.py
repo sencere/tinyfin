@@ -6,6 +6,7 @@ import numpy as np
 import time
 import importlib.machinery
 import os
+import hashlib
 
 # Allow submodule imports (namespace-like) alongside this module file.
 __package__ = __name__
@@ -68,6 +69,11 @@ lib.py_tensor_set_dtype = lib.py_tensor_set_dtype if hasattr(lib, 'py_tensor_set
 if lib.py_tensor_set_dtype:
     lib.py_tensor_set_dtype.argtypes = (ctypes.c_void_p, ctypes.c_int)
     lib.py_tensor_set_dtype.restype = ctypes.c_int
+
+lib.py_tensor_get_dtype = lib.py_tensor_get_dtype if hasattr(lib, 'py_tensor_get_dtype') else None
+if lib.py_tensor_get_dtype:
+    lib.py_tensor_get_dtype.argtypes = (ctypes.c_void_p,)
+    lib.py_tensor_get_dtype.restype = ctypes.c_int
 
 lib.py_tensor_get_device = lib.py_tensor_get_device if hasattr(lib, 'py_tensor_get_device') else None
 if lib.py_tensor_get_device:
@@ -280,6 +286,51 @@ if lib.py_autograd_get_retain_default:
     lib.py_autograd_get_retain_default.argtypes = ()
     lib.py_autograd_get_retain_default.restype = ctypes.c_int
 
+lib.py_graph_capture_begin = lib.py_graph_capture_begin if hasattr(lib, 'py_graph_capture_begin') else None
+if lib.py_graph_capture_begin:
+    lib.py_graph_capture_begin.argtypes = ()
+    lib.py_graph_capture_begin.restype = None
+
+lib.py_graph_capture_end = lib.py_graph_capture_end if hasattr(lib, 'py_graph_capture_end') else None
+if lib.py_graph_capture_end:
+    lib.py_graph_capture_end.argtypes = (ctypes.POINTER(ctypes.c_void_p), ctypes.c_int)
+    lib.py_graph_capture_end.restype = ctypes.c_void_p
+
+lib.py_graph_free = lib.py_graph_free if hasattr(lib, 'py_graph_free') else None
+if lib.py_graph_free:
+    lib.py_graph_free.argtypes = (ctypes.c_void_p,)
+    lib.py_graph_free.restype = None
+
+lib.py_graph_compile = lib.py_graph_compile if hasattr(lib, 'py_graph_compile') else None
+if lib.py_graph_compile:
+    lib.py_graph_compile.argtypes = (ctypes.c_void_p,)
+    lib.py_graph_compile.restype = ctypes.c_void_p
+
+lib.py_graph_plan_free = lib.py_graph_plan_free if hasattr(lib, 'py_graph_plan_free') else None
+if lib.py_graph_plan_free:
+    lib.py_graph_plan_free.argtypes = (ctypes.c_void_p,)
+    lib.py_graph_plan_free.restype = None
+
+lib.py_graph_run = lib.py_graph_run if hasattr(lib, 'py_graph_run') else None
+if lib.py_graph_run:
+    lib.py_graph_run.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_int)
+    lib.py_graph_run.restype = ctypes.c_void_p
+
+lib.py_graph_signature = lib.py_graph_signature if hasattr(lib, 'py_graph_signature') else None
+if lib.py_graph_signature:
+    lib.py_graph_signature.argtypes = (ctypes.c_void_p,)
+    lib.py_graph_signature.restype = ctypes.c_uint64
+
+lib.py_graph_cache_run = lib.py_graph_cache_run if hasattr(lib, 'py_graph_cache_run') else None
+if lib.py_graph_cache_run:
+    lib.py_graph_cache_run.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_int, ctypes.POINTER(ctypes.c_int))
+    lib.py_graph_cache_run.restype = ctypes.c_void_p
+
+lib.py_graph_cache_clear = lib.py_graph_cache_clear if hasattr(lib, 'py_graph_cache_clear') else None
+if lib.py_graph_cache_clear:
+    lib.py_graph_cache_clear.argtypes = ()
+    lib.py_graph_cache_clear.restype = None
+
 # push/pop helpers for nested no_grad
 lib.py_autograd_push_disabled = lib.py_autograd_push_disabled if hasattr(lib, 'py_autograd_push_disabled') else None
 if lib.py_autograd_push_disabled:
@@ -463,6 +514,8 @@ class Tensor:
         t = cls(p)
         if requires_grad and lib.py_tensor_set_requires_grad:
             lib.py_tensor_set_requires_grad(t._ptr, 1)
+        if not requires_grad:
+            _graph_mark_const(t)
         return t
 
     @classmethod
@@ -473,6 +526,8 @@ class Tensor:
             raise ValueError("rand expects a shape")
         t = cls.new(list(shape), requires_grad=requires_grad)
         t.numpy_view()[:] = np.random.uniform(low, high, size=t.shape()).astype(np.float32)
+        if not requires_grad:
+            _graph_mark_const(t)
         return t
 
     @classmethod
@@ -482,6 +537,8 @@ class Tensor:
         if device is not None and hasattr(t, "set_device"):
             t.set_device(device)
         t.numpy_view()[:] = np_arr
+        if not requires_grad:
+            _graph_mark_const(t)
         return t
 
     @classmethod
@@ -492,6 +549,8 @@ class Tensor:
             raise ValueError("randn expects a shape")
         t = cls.new(list(shape), requires_grad=requires_grad)
         t.numpy_view()[:] = (np.random.randn(*t.shape()) * std + mean).astype(np.float32)
+        if not requires_grad:
+            _graph_mark_const(t)
         return t
 
     @classmethod
@@ -507,6 +566,8 @@ class Tensor:
         bound = np.sqrt(3.0) * gain / np.sqrt(fan_in)
         t = cls.new(list(shape), requires_grad=requires_grad)
         t.numpy_view()[:] = np.random.uniform(-bound, bound, size=t.shape()).astype(np.float32)
+        if not requires_grad:
+            _graph_mark_const(t)
         return t
 
     @classmethod
@@ -522,6 +583,8 @@ class Tensor:
         bound = np.sqrt(6.0 / (fan_in + fan_out))
         t = cls.new(list(shape), requires_grad=requires_grad)
         t.numpy_view()[:] = np.random.uniform(-bound, bound, size=t.shape()).astype(np.float32)
+        if not requires_grad:
+            _graph_mark_const(t)
         return t
 
     @classmethod
@@ -576,7 +639,9 @@ class Tensor:
             raise ValueError(f"reshape size mismatch: {self.shape()} -> {shp}")
         shp_arr = (ctypes.c_int * len(shp))(*shp)
         p = lib.py_reshape(self._ptr, len(shp), shp_arr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("reshape", [self], out, attrs={"shape": list(shp)})
+        return out
 
     def flatten(self, start_dim=0):
         shape = self.shape()
@@ -606,6 +671,11 @@ class Tensor:
             return lib.py_tensor_set_dtype(self._ptr, int(dtype))
         raise RuntimeError("set_dtype not available in C API")
 
+    def get_dtype(self):
+        if lib.py_tensor_get_dtype:
+            return lib.py_tensor_get_dtype(self._ptr)
+        raise RuntimeError("get_dtype not available in C API")
+
     def get_device(self):
         if lib.py_tensor_get_device:
             return lib.py_tensor_get_device(self._ptr)
@@ -623,7 +693,9 @@ class Tensor:
         if self.get_device() != other.get_device():
             raise ValueError(f"add device mismatch: {self.get_device()} vs {other.get_device()}")
         p = lib.py_add(self._ptr, other._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("add", [self, other], out)
+        return out
 
     def __sub__(self, other):
         if not isinstance(other, Tensor):
@@ -631,19 +703,27 @@ class Tensor:
         if self.get_device() != other.get_device():
             raise ValueError(f"sub device mismatch: {self.get_device()} vs {other.get_device()}")
         p = lib.py_sub(self._ptr, other._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("sub", [self, other], out)
+        return out
 
     def abs(self):
         p = lib.py_abs(self._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("abs", [self], out)
+        return out
 
     def neg(self):
         p = lib.py_neg(self._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("neg", [self], out)
+        return out
 
     def clamp(self, minv, maxv):
         p = lib.py_clamp(self._ptr, ctypes.c_float(minv), ctypes.c_float(maxv))
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("clamp", [self], out, attrs={"min": float(minv), "max": float(maxv)})
+        return out
 
     def argmax(self):
         p = lib.py_argmax(self._ptr)
@@ -662,18 +742,24 @@ class Tensor:
         if dim < -ndim or dim >= ndim:
             raise ValueError(f"squeeze dim out of range for tensor of ndim {ndim}")
         p = lib.py_squeeze(self._ptr, int(dim))
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("squeeze", [self], out, attrs={"dim": int(dim)})
+        return out
 
     def unsqueeze(self, dim):
         ndim = lib.py_tensor_ndim(self._ptr)
         if dim < -(ndim + 1) or dim > ndim:
             raise ValueError(f"unsqueeze dim out of range for tensor of ndim {ndim}")
         p = lib.py_unsqueeze(self._ptr, int(dim))
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("unsqueeze", [self], out, attrs={"dim": int(dim)})
+        return out
 
     def sqrt(self):
         p = lib.py_sqrt(self._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("sqrt", [self], out)
+        return out
 
     def embedding(self, indices):
         if not isinstance(indices, Tensor):
@@ -681,7 +767,9 @@ class Tensor:
         if self.get_device() != indices.get_device():
             raise ValueError(f"embedding device mismatch: {self.get_device()} vs {indices.get_device()}")
         p = lib.py_embedding(self._ptr, indices._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("embedding", [self, indices], out)
+        return out
 
     def conv2d(self, weight, bias=None):
         if not isinstance(weight, Tensor):
@@ -702,7 +790,10 @@ class Tensor:
                 raise ValueError(f"conv2d bias shape mismatch: expected [{w_shape[0]}], got {b_shape}")
         bptr = bias._ptr if bias is not None else ctypes.c_void_p(0)
         p = lib.py_conv2d(self._ptr, weight._ptr, bptr)
-        return Tensor(p)
+        out = Tensor(p)
+        inputs = [self, weight] + ([bias] if bias is not None else [])
+        _graph_record_op("conv2d", inputs, out)
+        return out
 
     def __truediv__(self, other):
         if not isinstance(other, Tensor):
@@ -719,7 +810,9 @@ class Tensor:
             if ad != bd and ad != 1 and bd != 1:
                 raise ValueError(f"div shape mismatch: {self.shape()} vs {other.shape()}")
         p = lib.py_div(self._ptr, other._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("div", [self, other], out)
+        return out
 
     def __mul__(self, other):
         if not isinstance(other, Tensor):
@@ -727,7 +820,9 @@ class Tensor:
         if self.get_device() != other.get_device():
             raise ValueError(f"mul device mismatch: {self.get_device()} vs {other.get_device()}")
         p = lib.py_mul(self._ptr, other._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("mul", [self, other], out)
+        return out
 
     def matmul(self, other):
         if not isinstance(other, Tensor):
@@ -741,44 +836,61 @@ class Tensor:
         if a_shape[1] != b_shape[0]:
             raise ValueError(f"matmul shape mismatch: {a_shape} @ {b_shape}")
         p = lib.py_matmul(self._ptr, other._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("matmul", [self, other], out)
+        return out
 
     def dot(self, other):
         return self.matmul(other)
 
     def exp(self):
         p = lib.py_exp(self._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("exp", [self], out)
+        return out
 
     def log(self):
         if not lib.py_log: raise RuntimeError('log not available in C API')
         p = lib.py_log(self._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("log", [self], out)
+        return out
 
     def log_softmax(self):
         if not lib.py_log_softmax: raise RuntimeError('log_softmax not available in C API')
         p = lib.py_log_softmax(self._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("log_softmax", [self], out)
+        return out
 
     def logsumexp(self):
         if not lib.py_logsumexp: raise RuntimeError('logsumexp not available in C API')
         p = lib.py_logsumexp(self._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("logsumexp", [self], out)
+        return out
 
     def clamp_min(self, min_val):
         if not lib.py_clamp_min: raise RuntimeError('clamp_min not available in C API')
         p = lib.py_clamp_min(self._ptr, ctypes.c_float(min_val))
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("clamp_min", [self], out, attrs={"min": float(min_val)})
+        return out
 
     def relu(self):
         if not lib.py_clamp_min:
             raise RuntimeError('relu not available in C API')
-        return self.clamp_min(0.0)
+        p = lib.py_clamp_min(self._ptr, ctypes.c_float(0.0))
+        out = Tensor(p)
+        _graph_record_op("relu", [self], out)
+        return out
 
     def softmax(self):
         if not lib.py_softmax: raise RuntimeError('softmax not available in C API')
         p = lib.py_softmax(self._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("softmax", [self], out)
+        return out
 
     def maxpool2d(self, kernel_size):
         if not lib.py_maxpool2d: raise RuntimeError('maxpool2d not available in C API')
@@ -790,12 +902,16 @@ class Tensor:
         if x_shape[2] % kernel_size != 0 or x_shape[3] % kernel_size != 0:
             raise ValueError(f"maxpool2d kernel_size {kernel_size} must divide H,W {x_shape[2:]}")
         p = lib.py_maxpool2d(self._ptr, ctypes.c_int(kernel_size))
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("maxpool2d", [self], out, attrs={"kernel_size": int(kernel_size)})
+        return out
 
     def transpose(self):
         if not lib.py_transpose: raise RuntimeError('transpose not available in C API')
         p = lib.py_transpose(self._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("transpose", [self], out)
+        return out
 
     def permute(self, order):
         if not lib.py_permute: raise RuntimeError('permute not available in C API')
@@ -808,7 +924,9 @@ class Tensor:
             raise ValueError(f"permute order must be a permutation of [0,{ndim-1}]")
         arr = (ctypes.c_int * len(order))(*order)
         p = lib.py_permute(self._ptr, len(order), arr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("permute", [self], out, attrs={"order": list(order)})
+        return out
 
     def concat(self, other, axis=0):
         if not lib.py_concat: raise RuntimeError('concat not available in C API')
@@ -834,7 +952,9 @@ class Tensor:
         p = lib.py_concat(self._ptr, other._ptr, int(axis))
         if not p:
             raise ValueError("concat failed; ensure shapes are compatible")
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("concat", [self, other], out, attrs={"axis": int(axis)})
+        return out
 
     def stack(self, other, axis=0):
         if not lib.py_stack: raise RuntimeError('stack not available in C API')
@@ -858,7 +978,9 @@ class Tensor:
         p = lib.py_stack(self._ptr, other._ptr, int(axis))
         if not p:
             raise ValueError("stack failed; ensure shapes are compatible")
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("stack", [self, other], out, attrs={"axis": int(axis)})
+        return out
 
     def slice(self, axis, start, end):
         if not lib.py_slice: raise RuntimeError('slice not available in C API')
@@ -873,7 +995,9 @@ class Tensor:
         p = lib.py_slice(self._ptr, int(axis), int(start), int(end))
         if not p:
             raise ValueError("slice failed; check bounds")
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("slice", [self], out, attrs={"axis": int(axis), "start": int(start), "end": int(end)})
+        return out
 
     def select(self, axis, index):
         if not isinstance(index, int):
@@ -898,7 +1022,9 @@ class Tensor:
         if pad_h < 0 or pad_w < 0:
             raise ValueError("pad2d padding must be non-negative")
         p = lib.py_pad2d(self._ptr, int(pad_h), int(pad_w), ctypes.c_float(value))
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("pad2d", [self], out, attrs={"pad_h": int(pad_h), "pad_w": int(pad_w), "value": float(value)})
+        return out
 
     def avgpool2d(self, kernel_size):
         if not lib.py_avgpool2d: raise RuntimeError('avgpool2d not available in C API')
@@ -910,7 +1036,9 @@ class Tensor:
         if x_shape[2] % kernel_size != 0 or x_shape[3] % kernel_size != 0:
             raise ValueError(f"avgpool2d kernel_size {kernel_size} must divide H,W {x_shape[2:]}")
         p = lib.py_avgpool2d(self._ptr, ctypes.c_int(kernel_size))
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("avgpool2d", [self], out, attrs={"kernel_size": int(kernel_size)})
+        return out
 
     def has_nan_or_inf(self):
         if not lib.py_has_nan_inf: raise RuntimeError('has_nan_or_inf not available in C API')
@@ -919,12 +1047,16 @@ class Tensor:
 
     def sum(self):
         p = lib.py_sum(self._ptr)
-        return Tensor(p)
+        out = Tensor(p)
+        _graph_record_op("sum", [self], out)
+        return out
 
     def dropout(self, p=0.5, training=True):
         if not lib.py_dropout: raise RuntimeError('dropout not available in C API')
         ptr = lib.py_dropout(self._ptr, ctypes.c_float(p), int(bool(training)))
-        return Tensor(ptr)
+        out = Tensor(ptr)
+        _graph_record_op("dropout", [self], out, attrs={"p": float(p), "training": bool(training)})
+        return out
 
     def requires_grad(self):
         if not lib.py_tensor_get_requires_grad: return False
@@ -1277,6 +1409,432 @@ class no_grad:
             lib.py_autograd_set_enabled(self._prev)
 
 
+_GRAPH_CAPTURE_STACK = []
+_GRAPH_CAPTURE_RECORDER = None
+_GRAPH_CAPTURE_SUPPRESS = 0
+_GRAPH_EXEC_CACHE = {}
+
+
+def _graph_capture_enabled():
+    return _GRAPH_CAPTURE_RECORDER is not None and _GRAPH_CAPTURE_SUPPRESS == 0
+
+
+class _graph_capture_disabled:
+    def __enter__(self):
+        global _GRAPH_CAPTURE_SUPPRESS
+        _GRAPH_CAPTURE_SUPPRESS += 1
+
+    def __exit__(self, exc_type, exc, tb):
+        global _GRAPH_CAPTURE_SUPPRESS
+        _GRAPH_CAPTURE_SUPPRESS -= 1
+
+
+def _tensor_key(t):
+    if not t or not getattr(t, "_ptr", None):
+        return 0
+    return int(t._ptr.value)
+
+
+def _graph_mark_const(t):
+    if not _graph_capture_enabled():
+        return
+    if not hasattr(t, "_graph_const"):
+        t._graph_const = True
+
+
+class GraphRecorder:
+    def __init__(self):
+        self.nodes = []
+        self.inputs = []
+        self.outputs = []
+        self._tensor_to_id = {}
+        self._next_id = 0
+
+    def _new_id(self, prefix):
+        self._next_id += 1
+        return f"{prefix}{self._next_id}"
+
+    def _meta(self, t):
+        info = {"shape": tuple(t.shape())}
+        try:
+            info["device"] = int(t.get_device())
+        except Exception:
+            info["device"] = None
+        try:
+            info["dtype"] = int(t.get_dtype())
+        except Exception:
+            info["dtype"] = None
+        try:
+            info["requires_grad"] = int(t.requires_grad())
+        except Exception:
+            info["requires_grad"] = None
+        return info
+
+    def _ensure_input(self, t):
+        key = _tensor_key(t)
+        if key in self._tensor_to_id:
+            return self._tensor_to_id[key]
+        if getattr(t, "_graph_const", False):
+            return self.add_const(t)
+        return self.add_input(t)
+
+    def add_input(self, t):
+        key = _tensor_key(t)
+        node_id = self._new_id("i")
+        node = {"id": node_id, "op": "input"}
+        node.update(self._meta(t))
+        self.nodes.append(node)
+        self.inputs.append(node_id)
+        self._tensor_to_id[key] = node_id
+        return node_id
+
+    def add_const(self, t):
+        key = _tensor_key(t)
+        node_id = self._new_id("c")
+        value = t.to_numpy()
+        const_hash = hashlib.sha256(value.tobytes()).hexdigest()
+        node = {"id": node_id, "op": "const", "value": value, "const_hash": const_hash}
+        node.update(self._meta(t))
+        self.nodes.append(node)
+        self._tensor_to_id[key] = node_id
+        return node_id
+
+    def record_op(self, op, inputs, output, attrs=None):
+        in_ids = [self._ensure_input(t) for t in inputs]
+        node_id = self._new_id("n")
+        node = {"id": node_id, "op": op, "inputs": in_ids, "attrs": attrs or {}}
+        node.update(self._meta(output))
+        self.nodes.append(node)
+        self._tensor_to_id[_tensor_key(output)] = node_id
+        return node_id
+
+    def finalize(self, outputs):
+        if isinstance(outputs, Tensor):
+            outputs = [outputs]
+        elif isinstance(outputs, (list, tuple)):
+            outputs = list(outputs)
+        else:
+            raise TypeError("graph capture outputs must be Tensor or list/tuple of Tensors")
+        self.outputs = [self._ensure_input(t) for t in outputs]
+
+    def graph(self):
+        return {
+            "version": 1,
+            "inputs": list(self.inputs),
+            "nodes": list(self.nodes),
+            "outputs": list(self.outputs),
+        }
+
+
+class graph_capture:
+    def __init__(self):
+        self.recorder = GraphRecorder()
+
+    def __enter__(self):
+        global _GRAPH_CAPTURE_RECORDER
+        _GRAPH_CAPTURE_STACK.append(_GRAPH_CAPTURE_RECORDER)
+        _GRAPH_CAPTURE_RECORDER = self.recorder
+        return self.recorder
+
+    def __exit__(self, exc_type, exc, tb):
+        global _GRAPH_CAPTURE_RECORDER
+        _GRAPH_CAPTURE_RECORDER = _GRAPH_CAPTURE_STACK.pop() if _GRAPH_CAPTURE_STACK else None
+
+
+def _graph_record_op(op, inputs, output, attrs=None):
+    if not _graph_capture_enabled():
+        return
+    _GRAPH_CAPTURE_RECORDER.record_op(op, inputs, output, attrs=attrs)
+
+
+def capture_graph(fn, *args, **kwargs):
+    with graph_capture() as rec:
+        out = fn(*args, **kwargs)
+    rec.finalize(out)
+    return out, rec.graph()
+
+
+def graph_signature(graph):
+    payload = []
+    for node in graph.get("nodes", []):
+        payload.append(
+            (
+                node.get("id"),
+                node.get("op"),
+                tuple(node.get("inputs", [])),
+                tuple(sorted((node.get("attrs") or {}).items())),
+                node.get("shape"),
+                node.get("dtype"),
+                node.get("device"),
+                node.get("const_hash"),
+            )
+        )
+    payload.append(("inputs", tuple(graph.get("inputs", []))))
+    payload.append(("outputs", tuple(graph.get("outputs", []))))
+    h = hashlib.sha256(repr(payload).encode("utf-8"))
+    return h.hexdigest()
+
+
+_ELEMENTWISE_OPS = {
+    "add",
+    "sub",
+    "mul",
+    "div",
+    "exp",
+    "log",
+    "clamp",
+    "clamp_min",
+    "relu",
+    "neg",
+    "abs",
+    "sqrt",
+}
+
+
+def _fuse_matmul_bias_relu(nodes, outputs):
+    nodes_by_id = {n["id"]: n for n in nodes}
+    users = {}
+    for n in nodes:
+        for inp in n.get("inputs", []):
+            users[inp] = users.get(inp, 0) + 1
+
+    skip = set()
+    fused = []
+    for n in nodes:
+        if n["id"] in skip:
+            continue
+        if n.get("op") != "relu":
+            fused.append(n)
+            continue
+        add_id = (n.get("inputs") or [None])[0]
+        add_node = nodes_by_id.get(add_id)
+        if not add_node or add_node.get("op") != "add" or users.get(add_id, 0) != 1:
+            fused.append(n)
+            continue
+        add_inputs = add_node.get("inputs", [])
+        if len(add_inputs) != 2:
+            fused.append(n)
+            continue
+        mm_id = add_inputs[0] if nodes_by_id.get(add_inputs[0], {}).get("op") == "matmul" else add_inputs[1]
+        bias_id = add_inputs[1] if mm_id == add_inputs[0] else add_inputs[0]
+        mm_node = nodes_by_id.get(mm_id)
+        if not mm_node or mm_node.get("op") != "matmul" or users.get(mm_id, 0) != 1:
+            fused.append(n)
+            continue
+        bias_node = nodes_by_id.get(bias_id)
+        if not bias_node:
+            fused.append(n)
+            continue
+        out_shape = mm_node.get("shape") or ()
+        bias_shape = bias_node.get("shape") or ()
+        if len(out_shape) != 2 or len(bias_shape) != 1 or bias_shape[0] != out_shape[1]:
+            fused.append(n)
+            continue
+        fused_node = {
+            "id": n["id"],
+            "op": "matmul_bias_relu",
+            "inputs": list(mm_node.get("inputs", [])) + [bias_id],
+            "attrs": {},
+            "shape": n.get("shape"),
+            "dtype": n.get("dtype"),
+            "device": n.get("device"),
+            "requires_grad": n.get("requires_grad"),
+        }
+        skip.update({add_id, mm_id})
+        fused.append(fused_node)
+    return fused
+
+
+def _fuse_elementwise(nodes, outputs):
+    outputs = set(outputs)
+    nodes_by_id = {n["id"]: n for n in nodes}
+    consumers = {}
+    users = {}
+    for n in nodes:
+        for inp in n.get("inputs", []):
+            consumers.setdefault(inp, []).append(n)
+            users[inp] = users.get(inp, 0) + 1
+
+    fused = []
+    skip = set()
+    for n in nodes:
+        if n["id"] in skip:
+            continue
+        if n.get("op") not in _ELEMENTWISE_OPS:
+            fused.append(n)
+            continue
+        chain = [n]
+        curr = n
+        while True:
+            if curr["id"] in outputs:
+                break
+            nexts = consumers.get(curr["id"], [])
+            if len(nexts) != 1:
+                break
+            nxt = nexts[0]
+            if nxt.get("op") not in _ELEMENTWISE_OPS:
+                break
+            if users.get(curr["id"], 0) != 1:
+                break
+            chain.append(nxt)
+            curr = nxt
+        if len(chain) == 1:
+            fused.append(n)
+            continue
+        for node in chain[1:]:
+            skip.add(node["id"])
+        fused_node = {
+            "id": chain[-1]["id"],
+            "op": "fused_elementwise",
+            "chain": chain,
+            "shape": chain[-1].get("shape"),
+            "dtype": chain[-1].get("dtype"),
+            "device": chain[-1].get("device"),
+            "requires_grad": chain[-1].get("requires_grad"),
+        }
+        fused.append(fused_node)
+    return fused
+
+
+def compile_graph(graph):
+    nodes = [dict(n) for n in graph.get("nodes", [])]
+    outputs = list(graph.get("outputs", []))
+    nodes = _fuse_matmul_bias_relu(nodes, outputs)
+    nodes = _fuse_elementwise(nodes, outputs)
+    return {
+        "version": 1,
+        "inputs": list(graph.get("inputs", [])),
+        "nodes": nodes,
+        "outputs": outputs,
+    }
+
+
+def _graph_apply_op(op, inputs, attrs):
+    if op == "add":
+        return inputs[0] + inputs[1]
+    if op == "sub":
+        return inputs[0] - inputs[1]
+    if op == "mul":
+        return inputs[0] * inputs[1]
+    if op == "div":
+        return inputs[0] / inputs[1]
+    if op == "matmul":
+        return inputs[0].matmul(inputs[1])
+    if op == "relu":
+        return inputs[0].relu()
+    if op == "exp":
+        return inputs[0].exp()
+    if op == "log":
+        return inputs[0].log()
+    if op == "clamp":
+        return inputs[0].clamp(attrs["min"], attrs["max"])
+    if op == "clamp_min":
+        return inputs[0].clamp_min(attrs["min"])
+    if op == "sum":
+        return inputs[0].sum()
+    if op == "reshape":
+        return inputs[0].reshape(attrs["shape"])
+    if op == "transpose":
+        return inputs[0].transpose()
+    if op == "permute":
+        return inputs[0].permute(attrs["order"])
+    if op == "concat":
+        return inputs[0].concat(inputs[1], axis=attrs.get("axis", 0))
+    if op == "stack":
+        return inputs[0].stack(inputs[1], axis=attrs.get("axis", 0))
+    if op == "slice":
+        return inputs[0].slice(attrs["axis"], attrs["start"], attrs["end"])
+    if op == "pad2d":
+        return inputs[0].pad2d(attrs["pad_h"], attrs["pad_w"], value=attrs.get("value", 0.0))
+    if op == "conv2d":
+        bias = inputs[2] if len(inputs) > 2 else None
+        return inputs[0].conv2d(inputs[1], bias=bias)
+    if op == "maxpool2d":
+        return inputs[0].maxpool2d(attrs["kernel_size"])
+    if op == "avgpool2d":
+        return inputs[0].avgpool2d(attrs["kernel_size"])
+    if op == "softmax":
+        return inputs[0].softmax()
+    if op == "log_softmax":
+        return inputs[0].log_softmax()
+    if op == "logsumexp":
+        return inputs[0].logsumexp()
+    if op == "sqrt":
+        return inputs[0].sqrt()
+    if op == "abs":
+        return inputs[0].abs()
+    if op == "neg":
+        return inputs[0].neg()
+    if op == "dropout":
+        return inputs[0].dropout(p=attrs.get("p", 0.5), training=attrs.get("training", True))
+    if op == "embedding":
+        return inputs[0].embedding(inputs[1])
+    if op == "squeeze":
+        return inputs[0].squeeze(attrs.get("dim", -1))
+    if op == "unsqueeze":
+        return inputs[0].unsqueeze(attrs["dim"])
+    raise RuntimeError(f"unsupported graph op: {op}")
+
+
+def run_graph(plan, *inputs):
+    input_ids = plan.get("inputs", [])
+    if len(inputs) != len(input_ids):
+        raise ValueError(f"run_graph expects {len(input_ids)} inputs, got {len(inputs)}")
+    values = {}
+    for node_id, tensor in zip(input_ids, inputs):
+        values[node_id] = tensor
+    with _graph_capture_disabled():
+        for node in plan.get("nodes", []):
+            op = node.get("op")
+            if op == "input":
+                continue
+            if op == "const":
+                arr = node.get("value")
+                if arr is None:
+                    raise RuntimeError("const node missing value")
+                t = Tensor.from_numpy(arr, requires_grad=False)
+                dtype = node.get("dtype")
+                if dtype is not None:
+                    t.set_dtype(dtype)
+                device = node.get("device")
+                if device is not None:
+                    t.set_device(device)
+                values[node["id"]] = t
+                continue
+            if op == "fused_elementwise":
+                chain = node.get("chain", [])
+                for sub in chain:
+                    sub_inputs = [values[i] for i in sub.get("inputs", [])]
+                    out = _graph_apply_op(sub["op"], sub_inputs, sub.get("attrs") or {})
+                    values[sub["id"]] = out
+                values[node["id"]] = values[chain[-1]["id"]]
+                continue
+            if op == "matmul_bias_relu":
+                ins = [values[i] for i in node.get("inputs", [])]
+                mm = ins[0].matmul(ins[1])
+                out = (mm + ins[2]).relu()
+                values[node["id"]] = out
+                continue
+            in_vals = [values[i] for i in node.get("inputs", [])]
+            out = _graph_apply_op(op, in_vals, node.get("attrs") or {})
+            values[node["id"]] = out
+    outs = [values[i] for i in plan.get("outputs", [])]
+    return outs[0] if len(outs) == 1 else outs
+
+
+def graph_exec_cache_run(fn, *args, **kwargs):
+    out, graph = capture_graph(fn, *args, **kwargs)
+    key = graph_signature(graph)
+    cached = _GRAPH_EXEC_CACHE.get(key)
+    if cached is None:
+        _GRAPH_EXEC_CACHE[key] = compile_graph(graph)
+        return out, False
+    tensors = [a for a in args if isinstance(a, Tensor)]
+    if len(tensors) != len(cached.get("inputs", [])):
+        return out, False
+    return run_graph(cached, *tensors), True
+
+
 def export_graph(tensor, path: str):
     """Export autograd graph starting at tensor to a DOT file."""
     if not lib.py_autograd_to_dot:
@@ -1407,6 +1965,70 @@ def graph_cache_run(fn, *args, **kwargs):
         return cached, True
     _GRAPH_CACHE[key] = out
     return out, False
+
+
+def capture_graph_c(fn, *args, **kwargs):
+    """Capture a forward graph using the C recorder (experimental)."""
+    if not lib.py_graph_capture_begin or not lib.py_graph_capture_end:
+        raise RuntimeError("C graph capture not available")
+    lib.py_graph_capture_begin()
+    out = fn(*args, **kwargs)
+    outputs = out if isinstance(out, (list, tuple)) else [out]
+    for t in outputs:
+        if not isinstance(t, Tensor):
+            raise TypeError("C graph capture outputs must be Tensor")
+    arr_type = ctypes.c_void_p * len(outputs)
+    arr = arr_type(*[t._ptr for t in outputs])
+    g = lib.py_graph_capture_end(arr, len(outputs))
+    return out, ctypes.c_void_p(g)
+
+
+def graph_free_c(graph_ptr):
+    if lib.py_graph_free and graph_ptr:
+        lib.py_graph_free(graph_ptr)
+
+
+def graph_compile_c(graph_ptr):
+    if not lib.py_graph_compile:
+        raise RuntimeError("C graph compile not available")
+    return ctypes.c_void_p(lib.py_graph_compile(graph_ptr))
+
+
+def graph_plan_free_c(plan_ptr):
+    if lib.py_graph_plan_free and plan_ptr:
+        lib.py_graph_plan_free(plan_ptr)
+
+
+def graph_run_c(plan_ptr, *inputs):
+    if not lib.py_graph_run:
+        raise RuntimeError("C graph run not available")
+    tensors = list(inputs)
+    arr_type = ctypes.c_void_p * len(tensors)
+    arr = arr_type(*[t._ptr for t in tensors])
+    p = lib.py_graph_run(plan_ptr, arr, len(tensors))
+    return Tensor(p)
+
+
+def graph_signature_c(graph_ptr):
+    if not lib.py_graph_signature:
+        raise RuntimeError("C graph signature not available")
+    return int(lib.py_graph_signature(graph_ptr))
+
+
+def graph_cache_clear_c():
+    if lib.py_graph_cache_clear:
+        lib.py_graph_cache_clear()
+
+
+def graph_cache_run_c(graph_ptr, *inputs):
+    if not lib.py_graph_cache_run:
+        raise RuntimeError("C graph cache not available")
+    tensors = list(inputs)
+    arr_type = ctypes.c_void_p * len(tensors)
+    arr = arr_type(*[t._ptr for t in tensors])
+    hit = ctypes.c_int(0)
+    p = lib.py_graph_cache_run(graph_ptr, arr, len(tensors), ctypes.byref(hit))
+    return Tensor(p), bool(hit.value)
 
 def set_retain_graph_default(retain: bool):
     """Control whether Tensor.backward frees the graph by default."""

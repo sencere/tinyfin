@@ -1,6 +1,7 @@
 #include "ops_mul.h"
 #include "tensor.h"
 #include "autograd.h"
+#include "graph.h"
 #include "backend.h"
 #include "scratch.h"
 #include <stdlib.h>
@@ -201,6 +202,11 @@ Tensor *tensor_mul(Tensor *a, Tensor *b) {
         n->inputs[1] = b;
         n->visited = 0;
         Tensor_attach_gradients(out, n);
+    }
+
+    {
+        Tensor *inputs[2] = {a, b};
+        graph_record_op(GRAPH_OP_MUL, out, inputs, 2);
     }
 
     free(out_shape);

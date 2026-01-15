@@ -1,6 +1,7 @@
 #include "ops_sub.h"
 #include "tensor.h"
 #include "autograd.h"
+#include "graph.h"
 #include "scratch.h"
 #include <stdlib.h>
 
@@ -148,6 +149,11 @@ Tensor *tensor_sub(Tensor *a, Tensor *b) {
         n->inputs[1] = b;
         n->visited = 0;
         Tensor_attach_gradients(out, n);
+    }
+
+    {
+        Tensor *inputs[2] = {a, b};
+        graph_record_op(GRAPH_OP_SUB, out, inputs, 2);
     }
 
     free(out_shape);

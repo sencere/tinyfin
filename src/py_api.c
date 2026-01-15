@@ -36,6 +36,7 @@
 /* Pooling */
 #include "ops_maxpool.h"
 #include "ops_avgpool.h"
+#include "graph.h"
 
 /* Minimal C API exported for Python bindings (ctypes-friendly) */
 
@@ -144,6 +145,23 @@ void py_rmsprop_free(RMSProp *opt) { rmsprop_free(opt); }
 
 Tensor *py_dropout(Tensor *x, float p, int training) { return tensor_dropout(x, p, training); }
 
+/* Graph capture / compile / run (C-side) */
+void py_graph_capture_begin(void) { graph_capture_begin(); }
+Graph *py_graph_capture_end(void **outputs, int n_outputs) {
+	return graph_capture_end((Tensor **)outputs, n_outputs);
+}
+void py_graph_free(Graph *g) { graph_free(g); }
+GraphPlan *py_graph_compile(Graph *g) { return graph_compile(g); }
+void py_graph_plan_free(GraphPlan *p) { graph_plan_free(p); }
+Tensor *py_graph_run(GraphPlan *p, void **inputs, int n_inputs) {
+	return graph_run(p, (Tensor **)inputs, n_inputs);
+}
+uint64_t py_graph_signature(Graph *g) { return graph_signature(g); }
+Tensor *py_graph_cache_run(Graph *g, void **inputs, int n_inputs, int *hit) {
+	return graph_cache_run(g, (Tensor **)inputs, n_inputs, hit);
+}
+void py_graph_cache_clear(void) { graph_cache_clear(); }
+
 Tensor *py_batchnorm(Tensor *x, Tensor *gamma, Tensor *beta, float eps, int training, Tensor *running_mean, Tensor *running_var, float momentum) {
 	return tensor_batchnorm(x, gamma, beta, eps, training, running_mean, running_var, momentum);
 }
@@ -181,6 +199,7 @@ const char *py_autograd_to_dot(Tensor *t) { return autograd_to_dot(t); }
 
 /* DType / Device helpers */
 int py_tensor_set_dtype(Tensor *t, int dtype) { return tensor_set_dtype(t, dtype); }
+int py_tensor_get_dtype(Tensor *t) { return t ? (int)t->dtype : -1; }
 int py_tensor_get_device(Tensor *t) { return tensor_get_device(t); }
 void py_tensor_set_device(Tensor *t, int device) { tensor_set_device(t, device); }
 
