@@ -6,7 +6,7 @@ See `docs/backend_support_matrix.md` for the ops x backend support table.
 
 ## Available backends
 - `cpu` (default): always registered; runs all ops on host.
-- `cuda`: optional; currently provides matmul, broadcast-aware add/mul, and conv2d with backward handled on CUDA (inputs/outputs still live in host memory). Enable via `ENABLE_CUDA`/`TINYFIN_ENABLE_CUDA`.
+- `cuda`: optional; currently provides matmul, broadcast-aware add/mul, and conv2d with backward handled on CUDA (inputs/outputs still live in host memory). Enable via `ENABLE_CUDA`/`TINYFIN_ENABLE_CUDA`. Optional cuBLAS matmul forward/backward: `ENABLE_CUBLAS=1`.
 - `blas`: optional; matmul/conv2d via BLAS (im2col+GEMM) on CPU for float32 tensors when selected. Enable via `ENABLE_BLAS`/`TINYFIN_BACKEND=blas`.
 - `opengl` / `vulkan`: stub backends registered by default for experimentation; currently fall back to CPU and log a warning. Use them as placeholders when prototyping new GPU paths.
 
@@ -17,7 +17,8 @@ CUDA build/run quickstart:
 - Run with CUDA backend: `PYTHONPATH=python TINYFIN_BACKEND=cuda python3 examples/perf_profile.py cuda 512 512 512 20`
 - Confirm local bindings: `PYTHONPATH=python python3 -c "import tinyfin; print(tinyfin.__file__)"`
 - Note: CUDA elementwise add/mul broadcast path assumes contiguous inputs and will fall back to CPU if tensors are non-contiguous (e.g., views from transpose/permute).
-- Optional: `TINYFIN_CUDA_RESIDENT=1` enables a simple CUDA buffer pool to reduce repeated allocations.
+- Optional: `TINYFIN_CUDA_RESIDENT=1` enables a simple CUDA buffer pool to reduce repeated allocations (still copies host<->device per op).
+- Optional: `TINYFIN_CUDA_ASYNC=1` uses a shared CUDA stream and async memcpy/kernel launches where possible (host data is still copied per op).
 - Parity checks: `tests/python/test_backend_parity.py` (forward) and `tests/python/test_backend_parity_backward.py` (backward).
 
 Python helpers:
@@ -38,6 +39,6 @@ Device mapping (current):
 - Integration tests should assert identical numerical results for supported ops across backends when available (stub selection/retention is covered in `tests/python/test_backend_name.py` and `tests/python/test_backend_integration.py`).
 
 ## Next steps
-- Make CUDA conv2d fully autograd-ready and keep tensors resident on device.
+- Add a cuDNN conv2d path and keep tensors resident on device.
 - Prototype real OpenGL/Vulkan backends using the same registry entry points.
 - Add a mixed-precision gate (fp16/bfloat16) per backend with clear docs on safety/perf (stub in Python via `tinyfin.autocast`).

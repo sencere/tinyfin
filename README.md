@@ -36,6 +36,8 @@ CUDA build and run
 
 - Build CUDA-enabled shared library (requires `nvcc` on PATH):
   `make -j2 libtinyfin.so ENABLE_CUDA=1`
+- Optional: enable cuBLAS matmul when available:
+  `make -j2 libtinyfin.so ENABLE_CUDA=1 ENABLE_CUBLAS=1`
 - Run CUDA profiler from this repo (ensure local bindings are used):
   `PYTHONPATH=python TINYFIN_BACKEND=cuda python3 examples/perf_profile.py cuda 512 512 512 20`
 - If the backend still reports CPU, confirm you are loading the local bindings:

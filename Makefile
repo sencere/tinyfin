@@ -32,6 +32,11 @@ CUDA_OBJS := $(CUDA_SRC:.cu=.o)
 CFLAGS += -DTINYFIN_ENABLE_CUDA
 NVCCFLAGS += -DTINYFIN_ENABLE_CUDA
 LDFLAGS += -lcudart
+ENABLE_CUBLAS ?= 1
+ifdef ENABLE_CUBLAS
+CFLAGS += -DTINYFIN_ENABLE_CUBLAS
+LDFLAGS += -lcublas
+endif
 else
 CUDA_OBJS :=
 # register CUDA stub backend for fallback selection when CUDA is disabled
