@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 #ifdef TINYFIN_ENABLE_CUDA
 #include <cuda_runtime.h>
 #endif
@@ -15,6 +16,47 @@ static size_t tensor_dtype_size(int dtype) {
 }
 
 #ifdef TINYFIN_ENABLE_CUDA
+static int tensor_cuda_init_device(void) {
+    static int initialized = 0;
+    static int init_ok = 0;
+    if (initialized) return init_ok;
+
+    int count = 0;
+    cudaError_t err = cudaGetDeviceCount(&count);
+    if (err != cudaSuccess || count <= 0) {
+        fprintf(stderr, "[tinyfin][cuda] cudaGetDeviceCount: %s\n",
+                (err != cudaSuccess) ? cudaGetErrorString(err) : "no CUDA devices");
+        initialized = 1;
+        init_ok = 0;
+        return 0;
+    }
+
+    int desired = 0;
+    const char *env = getenv("TINYFIN_CUDA_DEVICE");
+    if (env && *env) {
+        char *end = NULL;
+        long v = strtol(env, &end, 10);
+        if (end && *end == '\0' && v >= 0 && v <= INT_MAX) desired = (int)v;
+    }
+    if (desired < 0 || desired >= count) {
+        fprintf(stderr, "[tinyfin][cuda] TINYFIN_CUDA_DEVICE=%d out of range (0..%d); using 0\n",
+                desired, count - 1);
+        desired = 0;
+    }
+
+    if (cudaSetDevice(desired) != cudaSuccess) {
+        fprintf(stderr, "[tinyfin][cuda] cudaSetDevice(%d) failed\n", desired);
+        initialized = 1;
+        init_ok = 0;
+        return 0;
+    }
+    (void)cudaFree(0);
+
+    initialized = 1;
+    init_ok = 1;
+    return 1;
+}
+
 static int tensor_cuda_managed_enabled(void) {
     const char *env = getenv("TINYFIN_CUDA_MANAGED");
     if (!env) return 1;
@@ -26,6 +68,7 @@ static void *tensor_alloc_storage(size_t bytes, int storage) {
     if (bytes == 0) return NULL;
 #ifdef TINYFIN_ENABLE_CUDA
     if (storage == STORAGE_CUDA_MANAGED) {
+        if (!tensor_cuda_init_device()) return NULL;
         void *ptr = NULL;
         if (cudaMallocManaged(&ptr, bytes, cudaMemAttachGlobal) != cudaSuccess) return NULL;
         memset(ptr, 0, bytes);

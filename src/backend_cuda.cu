@@ -24,6 +24,47 @@ static CudaBuf cuda_pool[16];
 
 static int cuda_ok(cudaError_t err, const char *msg);
 
+static int cuda_init_device(void) {
+    static int initialized = 0;
+    static int init_ok = 0;
+    if (initialized) return init_ok;
+
+    int count = 0;
+    cudaError_t err = cudaGetDeviceCount(&count);
+    if (err != cudaSuccess || count <= 0) {
+        fprintf(stderr, "[tinyfin][cuda] cudaGetDeviceCount: %s\n",
+                (err != cudaSuccess) ? cudaGetErrorString(err) : "no CUDA devices");
+        initialized = 1;
+        init_ok = 0;
+        return 0;
+    }
+
+    int desired = 0;
+    const char *env = getenv("TINYFIN_CUDA_DEVICE");
+    if (env && *env) {
+        char *end = NULL;
+        long v = strtol(env, &end, 10);
+        if (end && *end == '\0' && v >= 0 && v <= INT_MAX) desired = (int)v;
+    }
+    if (desired < 0 || desired >= count) {
+        fprintf(stderr, "[tinyfin][cuda] TINYFIN_CUDA_DEVICE=%d out of range (0..%d); using 0\n",
+                desired, count - 1);
+        desired = 0;
+    }
+
+    if (!cuda_ok(cudaSetDevice(desired), "cudaSetDevice")) {
+        initialized = 1;
+        init_ok = 0;
+        return 0;
+    }
+    /* Force context creation early for clearer errors. */
+    (void)cudaFree(0);
+
+    initialized = 1;
+    init_ok = 1;
+    return 1;
+}
+
 static int cuda_async_enabled(void) {
     const char *env = getenv("TINYFIN_CUDA_ASYNC");
     if (!env) return 0;
@@ -34,6 +75,7 @@ static cudaStream_t cuda_stream(void) {
     static cudaStream_t stream = 0;
     static int init = 0;
     if (!init) {
+        if (!cuda_init_device()) return 0;
         if (cuda_ok(cudaStreamCreate(&stream), "cudaStreamCreate")) {
             init = 1;
         } else {
@@ -56,6 +98,7 @@ static void cuda_pool_reset(void) {
 }
 
 static void *cuda_buf_alloc(size_t bytes, int *transient) {
+    if (!cuda_init_device()) return NULL;
     if (!cuda_resident_enabled()) {
         void *ptr = NULL;
         if (!cuda_ok(cudaMalloc(&ptr, bytes), "cudaMalloc transient")) return NULL;
@@ -122,6 +165,7 @@ static int tensor_is_managed(const Tensor *t) {
 
 static void cuda_prefetch_managed(const Tensor *t, size_t bytes, cudaStream_t stream) {
     if (!tensor_is_managed(t) || bytes == 0) return;
+    if (!cuda_init_device()) return;
     int dev = 0;
     if (!cuda_ok(cudaGetDevice(&dev), "cudaGetDevice")) return;
     cudaMemPrefetchAsync(t->raw_data, bytes, dev, stream);
@@ -330,6 +374,7 @@ static void matmul_bwd_cuda(AutogradNode *n) {
 
 static Tensor *cuda_matmul(Tensor *a, Tensor *b) {
     if (!a || !b) return NULL;
+    if (!cuda_init_device()) return NULL;
     if (a->ndim != 2 || b->ndim != 2) return NULL;
     if (a->shape[1] != b->shape[0]) return NULL;
     if (a->dtype != DTYPE_FLOAT32 || b->dtype != DTYPE_FLOAT32) {
@@ -527,6 +572,7 @@ static __global__ void add_kernel_bcast(const float *a, const float *b, float *o
 
 static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
     if (!a || !b) return NULL;
+    if (!cuda_init_device()) return NULL;
     if (a->dtype != DTYPE_FLOAT32 || b->dtype != DTYPE_FLOAT32) {
         fprintf(stderr, "[tinyfin][cuda] add/mul requires float32 tensors; falling back\n");
         return NULL;
@@ -1245,6 +1291,7 @@ static void conv2d_bwd_cuda(AutogradNode *n) {
 
 static Tensor *cuda_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     if (!input || !weight) return NULL;
+    if (!cuda_init_device()) return NULL;
     if (input->dtype != DTYPE_FLOAT32 || weight->dtype != DTYPE_FLOAT32) {
         fprintf(stderr, "[tinyfin][cuda] conv2d supports float32 only; falling back\n");
         return NULL;
