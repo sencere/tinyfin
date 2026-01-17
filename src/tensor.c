@@ -7,6 +7,7 @@
 #include <limits.h>
 #ifdef TINYFIN_ENABLE_CUDA
 #include <cuda_runtime.h>
+#include <pthread.h>
 #endif
 
 static int tensor_default_device = DEVICE_CPU;
@@ -16,19 +17,18 @@ static size_t tensor_dtype_size(int dtype) {
 }
 
 #ifdef TINYFIN_ENABLE_CUDA
-static int tensor_cuda_init_device(void) {
-    static int initialized = 0;
-    static int init_ok = 0;
-    if (initialized) return init_ok;
+static pthread_once_t tensor_cuda_global_once = PTHREAD_ONCE_INIT;
+static int tensor_cuda_has_device = 0;
+static int tensor_cuda_desired = 0;
 
+static void tensor_cuda_global_init(void) {
     int count = 0;
     cudaError_t err = cudaGetDeviceCount(&count);
     if (err != cudaSuccess || count <= 0) {
         fprintf(stderr, "[tinyfin][cuda] cudaGetDeviceCount: %s\n",
                 (err != cudaSuccess) ? cudaGetErrorString(err) : "no CUDA devices");
-        initialized = 1;
-        init_ok = 0;
-        return 0;
+        tensor_cuda_has_device = 0;
+        return;
     }
 
     int desired = 0;
@@ -46,14 +46,25 @@ static int tensor_cuda_init_device(void) {
 
     if (cudaSetDevice(desired) != cudaSuccess) {
         fprintf(stderr, "[tinyfin][cuda] cudaSetDevice(%d) failed\n", desired);
-        initialized = 1;
-        init_ok = 0;
-        return 0;
+        tensor_cuda_has_device = 0;
+        return;
     }
     (void)cudaFree(0);
 
-    initialized = 1;
-    init_ok = 1;
+    tensor_cuda_desired = desired;
+    tensor_cuda_has_device = 1;
+}
+
+static int tensor_cuda_init_device(void) {
+    pthread_once(&tensor_cuda_global_once, tensor_cuda_global_init);
+    if (!tensor_cuda_has_device) return 0;
+
+    int cur = -1;
+    if (cudaGetDevice(&cur) == cudaSuccess && cur == tensor_cuda_desired) return 1;
+    if (cudaSetDevice(tensor_cuda_desired) != cudaSuccess) {
+        fprintf(stderr, "[tinyfin][cuda] cudaSetDevice(%d) failed\n", tensor_cuda_desired);
+        return 0;
+    }
     return 1;
 }
 

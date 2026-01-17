@@ -9,6 +9,7 @@ extern "C" {
 }
 
 #include <cuda_runtime.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,19 +25,18 @@ static CudaBuf cuda_pool[16];
 
 static int cuda_ok(cudaError_t err, const char *msg);
 
-static int cuda_init_device(void) {
-    static int initialized = 0;
-    static int init_ok = 0;
-    if (initialized) return init_ok;
+static pthread_once_t cuda_global_once = PTHREAD_ONCE_INIT;
+static int cuda_global_has_device = 0;
+static int cuda_global_desired = 0;
 
+static void cuda_global_init(void) {
     int count = 0;
     cudaError_t err = cudaGetDeviceCount(&count);
     if (err != cudaSuccess || count <= 0) {
         fprintf(stderr, "[tinyfin][cuda] cudaGetDeviceCount: %s\n",
                 (err != cudaSuccess) ? cudaGetErrorString(err) : "no CUDA devices");
-        initialized = 1;
-        init_ok = 0;
-        return 0;
+        cuda_global_has_device = 0;
+        return;
     }
 
     int desired = 0;
@@ -53,16 +53,24 @@ static int cuda_init_device(void) {
     }
 
     if (!cuda_ok(cudaSetDevice(desired), "cudaSetDevice")) {
-        initialized = 1;
-        init_ok = 0;
-        return 0;
+        cuda_global_has_device = 0;
+        return;
     }
-    /* Force context creation early for clearer errors. */
     (void)cudaFree(0);
 
-    initialized = 1;
-    init_ok = 1;
-    return 1;
+    cuda_global_desired = desired;
+    cuda_global_has_device = 1;
+}
+
+static int cuda_init_device(void) {
+    /* CUDA device selection is per-thread; ensure every thread is set up. */
+    pthread_once(&cuda_global_once, cuda_global_init);
+    if (!cuda_global_has_device) return 0;
+
+    int cur = -1;
+    cudaError_t get_err = cudaGetDevice(&cur);
+    if (get_err == cudaSuccess && cur == cuda_global_desired) return 1;
+    return cuda_ok(cudaSetDevice(cuda_global_desired), "cudaSetDevice");
 }
 
 static int cuda_async_enabled(void) {
@@ -168,7 +176,16 @@ static void cuda_prefetch_managed(const Tensor *t, size_t bytes, cudaStream_t st
     if (!cuda_init_device()) return;
     int dev = 0;
     if (!cuda_ok(cudaGetDevice(&dev), "cudaGetDevice")) return;
-    cudaMemPrefetchAsync(t->raw_data, bytes, dev, stream);
+    cudaError_t err = cudaMemPrefetchAsync(t->raw_data, bytes, dev, stream);
+    if (err != cudaSuccess) {
+        /* Prefetch is optional; some devices/drivers don't support it for managed memory. */
+        if (err == cudaErrorInvalidDevice || err == cudaErrorNotSupported) {
+            (void)cudaGetLastError(); /* clear sticky error */
+            return;
+        }
+        (void)cuda_ok(err, "cudaMemPrefetchAsync");
+        (void)cudaGetLastError(); /* clear sticky error */
+    }
 }
 
 /* Backward is kept on CPU for now; tensors live in host memory even when
