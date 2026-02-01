@@ -1,12 +1,12 @@
 CC ?= gcc
 DEBUGFLAGS ?= -g -O0
-CFLAGS ?= -std=c99 -O2 -Wall -Wextra -Werror -I. -Isrc -Iinclude/tinyfin
+CFLAGS ?= -std=c99 -O2 -Wall -Wextra -Werror -I. -Isrc -Iinclude/tinyfin -finput-charset=UTF-8 -fexec-charset=UTF-8
 NVCC ?= nvcc
 NVCCFLAGS ?= -O2 -Xcompiler -fPIC -I. -Isrc -Iinclude/tinyfin
 
 # Allow building tests with debug symbols by setting DEBUG=1
 ifdef DEBUG
-CFLAGS := -std=c99 $(DEBUGFLAGS) -Wall -Wextra -Werror -I. -Isrc -Iinclude/tinyfin
+CFLAGS := -std=c99 $(DEBUGFLAGS) -Wall -Wextra -Werror -I. -Isrc -Iinclude/tinyfin -finput-charset=UTF-8 -fexec-charset=UTF-8
 NVCCFLAGS := -G -Xcompiler -fPIC -I. -Isrc -Iinclude/tinyfin
 endif
 

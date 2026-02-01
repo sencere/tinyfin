@@ -75,7 +75,8 @@ static int tensor_cuda_managed_enabled(void) {
 }
 #endif
 
-static void *tensor_alloc_storage(size_t bytes, int storage) {
+static void *tensor_alloc_storage(size_t bytes, int storage __attribute__((unused))) {
+    (void)storage;
     if (bytes == 0) return NULL;
 #ifdef TINYFIN_ENABLE_CUDA
     if (storage == STORAGE_CUDA_MANAGED) {
@@ -89,7 +90,8 @@ static void *tensor_alloc_storage(size_t bytes, int storage) {
     return calloc(1, bytes);
 }
 
-static void tensor_free_storage(void *ptr, int storage) {
+static void tensor_free_storage(void *ptr, int storage __attribute__((unused))) {
+    (void)storage;
     if (!ptr) return;
 #ifdef TINYFIN_ENABLE_CUDA
     if (storage == STORAGE_CUDA_MANAGED) {

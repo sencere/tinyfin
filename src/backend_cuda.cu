@@ -1185,6 +1185,8 @@ static void conv2d_bwd_cuda(AutogradNode *n) {
     if (need_w && (!w->grad || !tensor_is_managed(w->grad))) use_managed = 0;
     if (need_b && (!b->grad || !tensor_is_managed(b->grad))) use_managed = 0;
 
+    int use_async = cuda_async_enabled();
+    cudaStream_t stream = use_async ? cuda_stream() : 0;
     if (use_managed) {
         dX = (float *)x->data;
         dW = (float *)w->data;
@@ -1192,12 +1194,12 @@ static void conv2d_bwd_cuda(AutogradNode *n) {
         if (need_x) dGradX = (float *)x->grad->data;
         if (need_w) dGradW = (float *)w->grad->data;
         if (need_b) dGradB = (float *)b->grad->data;
-        cuda_prefetch_managed(x, bytes_x, 0);
-        cuda_prefetch_managed(w, bytes_w, 0);
-        cuda_prefetch_managed(y->grad, bytes_out, 0);
-        if (need_x) cuda_prefetch_managed(x->grad, bytes_x, 0);
-        if (need_w) cuda_prefetch_managed(w->grad, bytes_w, 0);
-        if (need_b) cuda_prefetch_managed(b->grad, bytes_b, 0);
+        cuda_prefetch_managed(x, bytes_x, stream);
+        cuda_prefetch_managed(w, bytes_w, stream);
+        cuda_prefetch_managed(y->grad, bytes_out, stream);
+        if (need_x) cuda_prefetch_managed(x->grad, bytes_x, stream);
+        if (need_w) cuda_prefetch_managed(w->grad, bytes_w, stream);
+        if (need_b) cuda_prefetch_managed(b->grad, bytes_b, stream);
     } else {
         dX = (float *)cuda_buf_alloc(bytes_x, &trans_x);
         if (!dX) ok = 0;
@@ -1205,32 +1207,50 @@ static void conv2d_bwd_cuda(AutogradNode *n) {
         if (!dW) ok = 0;
         dOut = (float *)cuda_buf_alloc(bytes_out, &trans_out);
         if (!dOut) ok = 0;
-        if (ok && !cuda_ok(cudaMemcpy(dX, x->data, bytes_x, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd X")) ok = 0;
-        if (ok && !cuda_ok(cudaMemcpy(dW, w->data, bytes_w, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd W")) ok = 0;
-        if (ok && !cuda_ok(cudaMemcpy(dOut, y->grad->data, bytes_out, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd dOut")) ok = 0;
+        if (use_async) {
+            if (ok && !cuda_ok(cudaMemcpyAsync(dX, x->data, bytes_x, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync conv2d bwd X")) ok = 0;
+            if (ok && !cuda_ok(cudaMemcpyAsync(dW, w->data, bytes_w, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync conv2d bwd W")) ok = 0;
+            if (ok && !cuda_ok(cudaMemcpyAsync(dOut, y->grad->data, bytes_out, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync conv2d bwd dOut")) ok = 0;
+        } else {
+            if (ok && !cuda_ok(cudaMemcpy(dX, x->data, bytes_x, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd X")) ok = 0;
+            if (ok && !cuda_ok(cudaMemcpy(dW, w->data, bytes_w, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd W")) ok = 0;
+            if (ok && !cuda_ok(cudaMemcpy(dOut, y->grad->data, bytes_out, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bwd dOut")) ok = 0;
+        }
     }
 
     if (ok && need_x && !use_managed) {
         dGradX = (float *)cuda_buf_alloc(bytes_x, &trans_gx);
         if (!dGradX) ok = 0;
-        if (ok && !cuda_ok(cudaMemset(dGradX, 0, bytes_x), "cudaMemset conv2d bwd dX")) ok = 0;
+        if (use_async) {
+            if (ok && !cuda_ok(cudaMemsetAsync(dGradX, 0, bytes_x, stream), "cudaMemsetAsync conv2d bwd dX")) ok = 0;
+        } else {
+            if (ok && !cuda_ok(cudaMemset(dGradX, 0, bytes_x), "cudaMemset conv2d bwd dX")) ok = 0;
+        }
     }
     if (ok && need_w && !use_managed) {
         dGradW = (float *)cuda_buf_alloc(bytes_w, &trans_gw);
         if (!dGradW) ok = 0;
-        if (ok && !cuda_ok(cudaMemset(dGradW, 0, bytes_w), "cudaMemset conv2d bwd dW")) ok = 0;
+        if (use_async) {
+            if (ok && !cuda_ok(cudaMemsetAsync(dGradW, 0, bytes_w, stream), "cudaMemsetAsync conv2d bwd dW")) ok = 0;
+        } else {
+            if (ok && !cuda_ok(cudaMemset(dGradW, 0, bytes_w), "cudaMemset conv2d bwd dW")) ok = 0;
+        }
     }
     if (ok && need_b && !use_managed) {
         dGradB = (float *)cuda_buf_alloc(bytes_b, &trans_gb);
         if (!dGradB) ok = 0;
-        if (ok && !cuda_ok(cudaMemset(dGradB, 0, bytes_b), "cudaMemset conv2d bwd dB")) ok = 0;
+        if (use_async) {
+            if (ok && !cuda_ok(cudaMemsetAsync(dGradB, 0, bytes_b, stream), "cudaMemsetAsync conv2d bwd dB")) ok = 0;
+        } else {
+            if (ok && !cuda_ok(cudaMemset(dGradB, 0, bytes_b), "cudaMemset conv2d bwd dB")) ok = 0;
+        }
     }
 
     int threads = 128;
     if (ok && need_w) {
         int total_w = C_out * C_in * KH * KW;
         int blocks = (total_w + threads - 1) / threads;
-        conv2d_bwd_w_kernel<<<blocks, threads>>>(dX, dOut, dGradW, N, C_in, H, W,
+        conv2d_bwd_w_kernel<<<blocks, threads, 0, stream>>>(dX, dOut, dGradW, N, C_in, H, W,
                                                  C_out, KH, KW, Hout, Wout, total_w);
         if (!cuda_ok(cudaGetLastError(), "conv2d bwd dW kernel")) ok = 0;
     }
@@ -1238,7 +1258,7 @@ static void conv2d_bwd_cuda(AutogradNode *n) {
     if (ok && need_x) {
         int total_x = N * C_in * H * W;
         int blocks = (total_x + threads - 1) / threads;
-        conv2d_bwd_x_kernel<<<blocks, threads>>>(dW, dOut, dGradX, N, C_in, H, W,
+        conv2d_bwd_x_kernel<<<blocks, threads, 0, stream>>>(dW, dOut, dGradX, N, C_in, H, W,
                                                  C_out, KH, KW, Hout, Wout, total_x);
         if (!cuda_ok(cudaGetLastError(), "conv2d bwd dX kernel")) ok = 0;
     }
@@ -1246,12 +1266,16 @@ static void conv2d_bwd_cuda(AutogradNode *n) {
     if (ok && need_b) {
         int total_b = C_out;
         int blocks = (total_b + threads - 1) / threads;
-        conv2d_bwd_b_kernel<<<blocks, threads>>>(dOut, dGradB, N, C_out, Hout, Wout, total_b);
+        conv2d_bwd_b_kernel<<<blocks, threads, 0, stream>>>(dOut, dGradB, N, C_out, Hout, Wout, total_b);
         if (!cuda_ok(cudaGetLastError(), "conv2d bwd dB kernel")) ok = 0;
     }
 
     if (ok && use_managed) {
-        if (!cuda_ok(cudaDeviceSynchronize(), "cudaDeviceSynchronize conv2d bwd managed")) ok = 0;
+        if (use_async) {
+            if (!cuda_ok(cudaStreamSynchronize(stream), "cudaStreamSynchronize conv2d bwd managed")) ok = 0;
+        } else {
+            if (!cuda_ok(cudaDeviceSynchronize(), "cudaDeviceSynchronize conv2d bwd managed")) ok = 0;
+        }
     } else {
         float *tmp_w = NULL;
         float *tmp_x = NULL;
@@ -1260,19 +1284,35 @@ static void conv2d_bwd_cuda(AutogradNode *n) {
         if (ok && need_w) {
             tmp_w = (float *)malloc(bytes_w);
             if (!tmp_w) ok = 0;
-            if (ok && !cuda_ok(cudaMemcpy(tmp_w, dGradW, bytes_w, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d bwd dW->host")) ok = 0;
+            if (use_async) {
+                if (ok && !cuda_ok(cudaMemcpyAsync(tmp_w, dGradW, bytes_w, cudaMemcpyDeviceToHost, stream), "cudaMemcpyAsync conv2d bwd dW->host")) ok = 0;
+            } else {
+                if (ok && !cuda_ok(cudaMemcpy(tmp_w, dGradW, bytes_w, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d bwd dW->host")) ok = 0;
+            }
         }
 
         if (ok && need_x) {
             tmp_x = (float *)malloc(bytes_x);
             if (!tmp_x) ok = 0;
-            if (ok && !cuda_ok(cudaMemcpy(tmp_x, dGradX, bytes_x, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d bwd dX->host")) ok = 0;
+            if (use_async) {
+                if (ok && !cuda_ok(cudaMemcpyAsync(tmp_x, dGradX, bytes_x, cudaMemcpyDeviceToHost, stream), "cudaMemcpyAsync conv2d bwd dX->host")) ok = 0;
+            } else {
+                if (ok && !cuda_ok(cudaMemcpy(tmp_x, dGradX, bytes_x, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d bwd dX->host")) ok = 0;
+            }
         }
 
         if (ok && need_b) {
             tmp_b = (float *)malloc(bytes_b);
             if (!tmp_b) ok = 0;
-            if (ok && !cuda_ok(cudaMemcpy(tmp_b, dGradB, bytes_b, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d bwd dB->host")) ok = 0;
+            if (use_async) {
+                if (ok && !cuda_ok(cudaMemcpyAsync(tmp_b, dGradB, bytes_b, cudaMemcpyDeviceToHost, stream), "cudaMemcpyAsync conv2d bwd dB->host")) ok = 0;
+            } else {
+                if (ok && !cuda_ok(cudaMemcpy(tmp_b, dGradB, bytes_b, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d bwd dB->host")) ok = 0;
+            }
+        }
+
+        if (use_async) {
+            if (ok && !cuda_ok(cudaStreamSynchronize(stream), "cudaStreamSynchronize conv2d bwd out")) ok = 0;
         }
 
         if (ok && need_w) {
@@ -1375,15 +1415,17 @@ static Tensor *cuda_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     int trans_x = 0, trans_w = 0, trans_b = 0, trans_out = 0;
     int use_managed = tensor_is_managed(input) && tensor_is_managed(weight) && tensor_is_managed(out);
     if (bias && !tensor_is_managed(bias)) use_managed = 0;
+    int use_async = cuda_async_enabled();
+    cudaStream_t stream = use_async ? cuda_stream() : 0;
     if (use_managed) {
         dX = (float *)input->data;
         dW = (float *)weight->data;
         dOut = (float *)out->data;
         if (bias) dB = (float *)bias->data;
-        cuda_prefetch_managed(input, bytes_x, 0);
-        cuda_prefetch_managed(weight, bytes_w, 0);
-        cuda_prefetch_managed(out, bytes_out, 0);
-        if (bias) cuda_prefetch_managed(bias, (size_t)bias->size * sizeof(float), 0);
+        cuda_prefetch_managed(input, bytes_x, stream);
+        cuda_prefetch_managed(weight, bytes_w, stream);
+        cuda_prefetch_managed(out, bytes_out, stream);
+        if (bias) cuda_prefetch_managed(bias, (size_t)bias->size * sizeof(float), stream);
     } else {
         dX = (float *)cuda_buf_alloc(bytes_x, &trans_x);
         if (!dX) goto fail;
@@ -1391,23 +1433,41 @@ static Tensor *cuda_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
         if (!dW) goto fail;
         dOut = (float *)cuda_buf_alloc(bytes_out, &trans_out);
         if (!dOut) goto fail;
-        if (!cuda_ok(cudaMemcpy(dX, input->data, bytes_x, cudaMemcpyHostToDevice), "cudaMemcpy conv2d X")) goto fail;
-        if (!cuda_ok(cudaMemcpy(dW, weight->data, bytes_w, cudaMemcpyHostToDevice), "cudaMemcpy conv2d W")) goto fail;
+        if (use_async) {
+            if (!cuda_ok(cudaMemcpyAsync(dX, input->data, bytes_x, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync conv2d X")) goto fail;
+            if (!cuda_ok(cudaMemcpyAsync(dW, weight->data, bytes_w, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync conv2d W")) goto fail;
+        } else {
+            if (!cuda_ok(cudaMemcpy(dX, input->data, bytes_x, cudaMemcpyHostToDevice), "cudaMemcpy conv2d X")) goto fail;
+            if (!cuda_ok(cudaMemcpy(dW, weight->data, bytes_w, cudaMemcpyHostToDevice), "cudaMemcpy conv2d W")) goto fail;
+        }
         if (bias) {
             size_t bytes_b = (size_t)bias->size * sizeof(float);
             dB = (float *)cuda_buf_alloc(bytes_b, &trans_b);
             if (!dB) goto fail;
-            if (!cuda_ok(cudaMemcpy(dB, bias->data, bytes_b, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bias")) goto fail;
+            if (use_async) {
+                if (!cuda_ok(cudaMemcpyAsync(dB, bias->data, bytes_b, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync conv2d bias")) goto fail;
+            } else {
+                if (!cuda_ok(cudaMemcpy(dB, bias->data, bytes_b, cudaMemcpyHostToDevice), "cudaMemcpy conv2d bias")) goto fail;
+            }
         }
     }
 
     /* naive direct conv: one thread per output element */
-    conv2d_kernel<<<blocks, threads>>>(dX, dW, dB, dOut, N, C_in, H, W, C_out, KH, KW, Hout, Wout, total);
+    conv2d_kernel<<<blocks, threads, 0, stream>>>(dX, dW, dB, dOut, N, C_in, H, W, C_out, KH, KW, Hout, Wout, total);
     if (!cuda_ok(cudaGetLastError(), "conv2d kernel launch")) goto fail;
     if (use_managed) {
-        if (!cuda_ok(cudaDeviceSynchronize(), "cudaDeviceSynchronize conv2d managed")) goto fail;
+        if (use_async) {
+            if (!cuda_ok(cudaStreamSynchronize(stream), "cudaStreamSynchronize conv2d managed")) goto fail;
+        } else {
+            if (!cuda_ok(cudaDeviceSynchronize(), "cudaDeviceSynchronize conv2d managed")) goto fail;
+        }
     } else {
-        if (!cuda_ok(cudaMemcpy(out->data, dOut, bytes_out, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d out")) goto fail;
+        if (use_async) {
+            if (!cuda_ok(cudaMemcpyAsync(out->data, dOut, bytes_out, cudaMemcpyDeviceToHost, stream), "cudaMemcpyAsync conv2d out")) goto fail;
+            if (!cuda_ok(cudaStreamSynchronize(stream), "cudaStreamSynchronize conv2d out")) goto fail;
+        } else {
+            if (!cuda_ok(cudaMemcpy(out->data, dOut, bytes_out, cudaMemcpyDeviceToHost), "cudaMemcpy conv2d out")) goto fail;
+        }
         cuda_buf_free(dX, trans_x);
         cuda_buf_free(dW, trans_w);
         cuda_buf_free(dOut, trans_out);

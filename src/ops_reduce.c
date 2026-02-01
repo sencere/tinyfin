@@ -53,6 +53,80 @@ Tensor *tensor_sum(Tensor *t) {
     return out;
 }
 
+static void sum_dim_bwd(AutogradNode *n) {
+    Tensor *in = n->a;
+    Tensor *out = n->out;
+    if (!in || !out || !out->grad) return;
+    int dim = (int)(intptr_t)n->inputs[1];
+    if (!in->grad) in->grad = tensor_zeros(in->ndim, in->shape);
+    if (!in->grad) return;
+
+    if (in->ndim != 2 || out->ndim != 2) return;
+    int N = in->shape[0];
+    int M = in->shape[1];
+    if (dim == 1) {
+        for (int i = 0; i < N; i++) {
+            float g = out->grad->data[i * out->shape[1]];
+            for (int j = 0; j < M; j++) {
+                in->grad->data[i * M + j] += g;
+            }
+        }
+    } else {
+        for (int j = 0; j < M; j++) {
+            float g = out->grad->data[j];
+            for (int i = 0; i < N; i++) {
+                in->grad->data[i * M + j] += g;
+            }
+        }
+    }
+}
+
+Tensor *tensor_sum_dim(Tensor *t, int dim) {
+    if (!t) return NULL;
+    if (t->ndim != 2) return NULL;
+    if (dim != 0 && dim != 1) return NULL;
+
+    int out_shape[2] = {t->shape[0], t->shape[1]};
+    if (dim == 1) out_shape[1] = 1;
+    else out_shape[0] = 1;
+
+    Tensor *out = tensor_new(2, out_shape);
+    if (!out) return NULL;
+    out->requires_grad = t->requires_grad;
+
+    int N = t->shape[0];
+    int M = t->shape[1];
+    if (dim == 1) {
+        for (int i = 0; i < N; i++) {
+            float s = 0.0f;
+            for (int j = 0; j < M; j++) s += t->data[i * M + j];
+            out->data[i * out->shape[1]] = s;
+        }
+    } else {
+        for (int j = 0; j < M; j++) {
+            float s = 0.0f;
+            for (int i = 0; i < N; i++) s += t->data[i * M + j];
+            out->data[j] = s;
+        }
+    }
+
+    if (t->requires_grad) {
+        AutogradNode *n = malloc(sizeof(*n));
+        n->a = t;
+        n->out = out;
+        n->backward = sum_dim_bwd;
+        n->n_inputs = 1;
+        n->inputs = malloc(sizeof(Tensor *) * 2);
+        if (n->inputs) {
+            n->inputs[0] = t;
+            n->inputs[1] = (Tensor *)(intptr_t)dim;
+        }
+        n->visited = 0;
+        Tensor_attach_gradients(out, n);
+    }
+    return out;
+}
+
 // Note: mean_fwd now takes the second Tensor* argument.
 static void mean_fwd(Tensor *a, Tensor *ignored, Tensor *out) {
     (void)ignored; // FIX: Silence 'unused parameter' warning
