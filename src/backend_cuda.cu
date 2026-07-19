@@ -22,6 +22,7 @@ typedef struct {
 } CudaBuf;
 
 static CudaBuf cuda_pool[16];
+static pthread_mutex_t cuda_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int cuda_ok(cudaError_t err, const char *msg);
 
@@ -79,18 +80,19 @@ static int cuda_async_enabled(void) {
     return atoi(env) != 0;
 }
 
-static cudaStream_t cuda_stream(void) {
-    static cudaStream_t stream = 0;
-    static int init = 0;
-    if (!init) {
-        if (!cuda_init_device()) return 0;
-        if (cuda_ok(cudaStreamCreate(&stream), "cudaStreamCreate")) {
-            init = 1;
-        } else {
-            stream = 0;
-        }
+static pthread_once_t cuda_stream_once = PTHREAD_ONCE_INIT;
+static cudaStream_t cuda_default_stream = 0;
+
+static void cuda_stream_init(void) {
+    if (!cuda_init_device()) return;
+    if (!cuda_ok(cudaStreamCreate(&cuda_default_stream), "cudaStreamCreate")) {
+        cuda_default_stream = 0;
     }
-    return stream;
+}
+
+static cudaStream_t cuda_stream(void) {
+    pthread_once(&cuda_stream_once, cuda_stream_init);
+    return cuda_default_stream;
 }
 
 static int cuda_resident_enabled(void) {
@@ -100,9 +102,11 @@ static int cuda_resident_enabled(void) {
 }
 
 static void cuda_pool_reset(void) {
+    pthread_mutex_lock(&cuda_pool_mutex);
     for (size_t i = 0; i < sizeof(cuda_pool) / sizeof(cuda_pool[0]); i++) {
         cuda_pool[i].in_use = 0;
     }
+    pthread_mutex_unlock(&cuda_pool_mutex);
 }
 
 static void *cuda_buf_alloc(size_t bytes, int *transient) {
@@ -114,24 +118,31 @@ static void *cuda_buf_alloc(size_t bytes, int *transient) {
         return ptr;
     }
 
+    pthread_mutex_lock(&cuda_pool_mutex);
     for (size_t i = 0; i < sizeof(cuda_pool) / sizeof(cuda_pool[0]); i++) {
         if (!cuda_pool[i].in_use && cuda_pool[i].ptr && cuda_pool[i].size >= bytes) {
             cuda_pool[i].in_use = 1;
             if (transient) *transient = 0;
+            pthread_mutex_unlock(&cuda_pool_mutex);
             return cuda_pool[i].ptr;
         }
     }
     for (size_t i = 0; i < sizeof(cuda_pool) / sizeof(cuda_pool[0]); i++) {
         if (!cuda_pool[i].in_use && !cuda_pool[i].ptr) {
             void *ptr = NULL;
-            if (!cuda_ok(cudaMalloc(&ptr, bytes), "cudaMalloc resident")) return NULL;
+            if (!cuda_ok(cudaMalloc(&ptr, bytes), "cudaMalloc resident")) {
+                pthread_mutex_unlock(&cuda_pool_mutex);
+                return NULL;
+            }
             cuda_pool[i].ptr = ptr;
             cuda_pool[i].size = bytes;
             cuda_pool[i].in_use = 1;
             if (transient) *transient = 0;
+            pthread_mutex_unlock(&cuda_pool_mutex);
             return ptr;
         }
     }
+    pthread_mutex_unlock(&cuda_pool_mutex);
 
     void *ptr = NULL;
     if (!cuda_ok(cudaMalloc(&ptr, bytes), "cudaMalloc transient fallback")) return NULL;
@@ -209,21 +220,30 @@ static void matmul_bwd_cuda(AutogradNode *n) {
     const int out_s1 = out->strides[1];
 
 #ifdef TINYFIN_ENABLE_CUBLAS
+static pthread_once_t cublas_once = PTHREAD_ONCE_INIT;
+static cublasHandle_t cublas_handle = NULL;
+static int cublas_handle_ok = 0;
+static pthread_mutex_t cublas_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void cublas_init(void) {
+    if (!cuda_init_device()) return;
+    if (cublasCreate(&cublas_handle) == CUBLAS_STATUS_SUCCESS) {
+        cublas_handle_ok = 1;
+    }
+}
+#endif
+
+#ifdef TINYFIN_ENABLE_CUBLAS
     int a_contig = (a->strides[1] == 1 && a->strides[0] == K);
     int b_contig = (b->strides[1] == 1 && b->strides[0] == N);
     int out_contig = (out->grad->strides[1] == 1 && out->grad->strides[0] == N);
     if (a_contig && b_contig && out_contig) {
         int use_async = cuda_async_enabled();
         cudaStream_t stream = use_async ? cuda_stream() : 0;
-        static cublasHandle_t handle = NULL;
-        static int handle_ok = 0;
-        if (!handle_ok) {
-            if (cublasCreate(&handle) == CUBLAS_STATUS_SUCCESS) handle_ok = 1;
-        }
-        if (handle_ok) {
-            if (use_async) {
-                cublasSetStream(handle, stream);
-            }
+        pthread_once(&cublas_once, cublas_init);
+        if (cublas_handle_ok) {
+            pthread_mutex_lock(&cublas_mutex);
+            cublasSetStream(cublas_handle, stream);
             size_t bytes_a = (size_t)a->size * sizeof(float);
             size_t bytes_b = (size_t)b->size * sizeof(float);
             size_t bytes_out = (size_t)out->size * sizeof(float);
@@ -273,7 +293,7 @@ static void matmul_bwd_cuda(AutogradNode *n) {
                     dGradA = (float *)cuda_buf_alloc(bytes_a, &trans_ga);
                     if (!dGradA) ok = 0;
                 }
-                if (ok && cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N,
+                if (ok && cublasSgemm(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N,
                                       K, M, N, &alpha,
                                       dB, N,
                                       dOut, N,
@@ -289,7 +309,7 @@ static void matmul_bwd_cuda(AutogradNode *n) {
                     dGradB = (float *)cuda_buf_alloc(bytes_b, &trans_gb);
                     if (!dGradB) ok = 0;
                 }
-                if (ok && cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T,
+                if (ok && cublasSgemm(cublas_handle, CUBLAS_OP_N, CUBLAS_OP_T,
                                       N, K, M, &alpha,
                                       dOut, N,
                                       dA, K,
@@ -298,6 +318,7 @@ static void matmul_bwd_cuda(AutogradNode *n) {
                     ok = 0;
                 }
             }
+            pthread_mutex_unlock(&cublas_mutex);
 
             if (ok && use_managed) {
                 if (use_async) {
@@ -452,21 +473,17 @@ static Tensor *cuda_matmul(Tensor *a, Tensor *b) {
     int a_contig = (a->strides[1] == 1 && a->strides[0] == K);
     int b_contig = (b->strides[1] == 1 && b->strides[0] == N);
     if (ok && a_contig && b_contig) {
-        static cublasHandle_t handle = NULL;
-        static int handle_ok = 0;
-        if (!handle_ok) {
-            if (cublasCreate(&handle) == CUBLAS_STATUS_SUCCESS) handle_ok = 1;
-        }
-        if (handle_ok) {
-            if (use_async) {
-                cublasSetStream(handle, stream);
-            }
+        pthread_once(&cublas_once, cublas_init);
+        if (cublas_handle_ok) {
+            pthread_mutex_lock(&cublas_mutex);
+            cublasSetStream(cublas_handle, stream);
             const float alpha = 1.0f;
             const float beta = 0.0f;
             /* Column-major: C^T = B^T * A^T */
-            cublasStatus_t st = cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
+            cublasStatus_t st = cublasSgemm(cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N,
                                            N, M, K, &alpha,
                                            dB, N, dA, K, &beta, dC, N);
+            pthread_mutex_unlock(&cublas_mutex);
             if (st != CUBLAS_STATUS_SUCCESS) {
                 fprintf(stderr, "[tinyfin][cuda] cublasSgemm failed; falling back\n");
                 matmul_kernel<<<grid, block>>>(dA, dB, dC, M, N, K,
@@ -518,8 +535,10 @@ static Tensor *cuda_matmul(Tensor *a, Tensor *b) {
             if (n->inputs) {
                 n->inputs[0] = a;
                 n->inputs[1] = b;
+                Tensor_attach_gradients(out, n);
+            } else {
+                free(n);
             }
-            Tensor_attach_gradients(out, n);
         }
     }
 
@@ -608,7 +627,7 @@ static Tensor *cuda_elemwise(Tensor *a, Tensor *b, int is_mul) {
     Tensor *out = tensor_new(out_ndim, out_shape);
     if (!out) { free(out_shape); return NULL; }
     out->requires_grad = (a->requires_grad || b->requires_grad);
-    out->dtype = static_cast<decltype(out->dtype)>(DTYPE_FLOAT32);
+    tensor_set_dtype(out, DTYPE_FLOAT32);
     tensor_set_device(out, DEVICE_GPU);
 
     /* fail-fast for non-contiguous tensors in broadcast path (stride kernel assumes contiguous storage) */
@@ -1394,7 +1413,7 @@ static Tensor *cuda_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
     Tensor *out = tensor_new(4, out_shape);
     if (!out) return NULL;
     out->requires_grad = (input->requires_grad || weight->requires_grad || (bias && bias->requires_grad));
-    out->dtype = static_cast<decltype(out->dtype)>(DTYPE_FLOAT32);
+    tensor_set_dtype(out, DTYPE_FLOAT32);
     tensor_set_device(out, DEVICE_GPU);
 
     size_t bytes_x = (size_t)input->size * sizeof(float);
@@ -1484,14 +1503,16 @@ static Tensor *cuda_conv2d(Tensor *input, Tensor *weight, Tensor *bias) {
             n->bias = bias;
             n->out = out;
             n->backward = conv2d_bwd_cuda;
-            n->n_inputs = 3;
-            n->inputs = (Tensor **)malloc(sizeof(Tensor *) * 3);
+            n->n_inputs = bias ? 3 : 2;
+            n->inputs = (Tensor **)malloc(sizeof(Tensor *) * (size_t)n->n_inputs);
             if (n->inputs) {
                 n->inputs[0] = input;
                 n->inputs[1] = weight;
-                n->inputs[2] = bias;
+                if (bias) n->inputs[2] = bias;
+                Tensor_attach_gradients(out, n);
+            } else {
+                free(n);
             }
-            Tensor_attach_gradients(out, n);
         }
     }
     return out;
