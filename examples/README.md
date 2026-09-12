@@ -1,5 +1,8 @@
 Use the examples to see tinyfin without external frameworks. Run from repo root after `make libtinyfin.so`.
 
+- `blob_mlp.py` — download-free deep learning smoke test on synthetic 2D clusters.
+  `PYTHONPATH=python python examples/blob_mlp.py`
+
 - `mnist_mlp.py` — synthetic MNIST-like MLP (CPU, numpy only).  
   `python examples/mnist_mlp.py`
 

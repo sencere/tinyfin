@@ -1,4 +1,4 @@
-from .tinyfin import Tensor, load_shared_lib, no_grad, Profiler, assert_finite, bce_loss, cross_entropy_logits, sparse_categorical_crossentropy, categorical_crossentropy, relu, vjp, jvp, hvp, set_retain_graph_default, get_retain_graph_default, export_graph, export_graph_ir, const_fold_ir, graph_cache_key, graph_cache_get, graph_cache_put, graph_cache_clear, graph_cache_run, graph_capture, capture_graph, graph_signature, compile_graph, run_graph, graph_exec_cache_run, capture_graph_c, graph_free_c, graph_compile_c, graph_plan_free_c, graph_run_c, graph_signature_c, graph_cache_clear_c, graph_cache_run_c
+from .tinyfin import __version__, Tensor, load_shared_lib, no_grad, Profiler, assert_finite, bce_loss, cross_entropy_logits, sparse_categorical_crossentropy, categorical_crossentropy, relu, backend_name, backend_set, vjp, jvp, hvp, set_retain_graph_default, get_retain_graph_default, export_graph, export_graph_ir, const_fold_ir, graph_cache_key, graph_cache_get, graph_cache_put, graph_cache_clear, graph_cache_run, graph_capture, capture_graph, graph_signature, compile_graph, run_graph, graph_exec_cache_run, capture_graph_c, graph_free_c, graph_compile_c, graph_plan_free_c, graph_run_c, graph_signature_c, graph_cache_clear_c, graph_cache_run_c
 from .tinyfin import SGDOpt, AdamOpt, RMSPropOpt
 from .nn import Parameter, Module, Sequential, BatchNorm, Dropout, Linear, Embedding, Flatten, MaxPool2d, Conv2d, ReLU, MLP, CrossEntropyLoss, RNNCell, RNN, LSTMCell, LSTM, MinGRUCell, MinGRU
 from .data import Dataset, Transform, Compose, Lambda, Normalize, RandomHorizontalFlip, RandomCrop, TensorDataset, DataLoader
@@ -8,6 +8,7 @@ from .scheduler import StepLR, ExponentialLR, LinearWarmupLR
 from . import tensor, optim, utils, nn, data, training, scheduler
 __all__ = [
     "Tensor",
+    "__version__",
     "load_shared_lib",
     "no_grad",
     "Profiler",
@@ -17,6 +18,8 @@ __all__ = [
     "sparse_categorical_crossentropy",
     "categorical_crossentropy",
     "relu",
+    "backend_name",
+    "backend_set",
     "Parameter",
     "Module",
     "Sequential",

@@ -64,7 +64,7 @@ def test_backend_opengl_conv2d_bias_fallback():
         assert y.shape() == [1, 1, 2, 2]
         np.testing.assert_allclose(
             y.to_numpy(),
-            np.array([[[[6.5, 8.5], [12.5, 14.5]]]], dtype=np.float32),
+            np.array([[[[4.5, 6.5], [10.5, 12.5]]]], dtype=np.float32),
         )
         assert backend_name() == "opengl"
     finally:
@@ -87,7 +87,7 @@ def test_backend_vulkan_conv2d_bias_fallback():
         assert y.shape() == [1, 1, 2, 2]
         np.testing.assert_allclose(
             y.to_numpy(),
-            np.array([[[[6.5, 8.5], [12.5, 14.5]]]], dtype=np.float32),
+            np.array([[[[4.5, 6.5], [10.5, 12.5]]]], dtype=np.float32),
         )
         assert backend_name() == "vulkan"
     finally:

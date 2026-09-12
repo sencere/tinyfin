@@ -1,7 +1,7 @@
 # tinyfin
 
 <p align="center">
-  <img src="resources/logo/logo.png" alt="tinyfin logo" />
+  <img src="resources/logo/logo.svg" alt="tinyfin logo" />
 </p>
 
 tinyfin is a small, educational deep learning library in C. It ships a minimal autograd engine, thin Python ctypes bindings, and optional BLAS/CUDA backends.
@@ -11,24 +11,24 @@ Quick start
 Build the shared library, compile the tests, and run smoke checks:
 
 ```bash
-# build the shared library (libtinyfin.so)
-make -j2 libtinyfin.so
-
-# build test binaries
-make -j2 tests
+# build the shared library (libtinyfin.so) and C test binaries
+make -j2
 
 # run C unit tests (binaries land in project root)
 ./tests/test_div_exp
 
 # run Python smoke tests
 python3 tests/python/test_div_exp_py.py
+
+# run a download-free deep learning example
+PYTHONPATH=python python3 examples/blob_mlp.py
 ```
 
 Build and test
 
-- Build everything (shared lib + tests): `make -j2`
+- Build everything (shared lib + C tests): `make -j2`
 - Build only the shared library: `make -j2 libtinyfin.so`
-- Build only tests: `make -j2 tests`
+- Build only C tests: `make -j2 tests`
 - Test binaries are placed in the project root; list them with `ls tests/` and run directly.
 - Python tests live in `tests/python/` and expect the shared library to be built first.
 
@@ -71,7 +71,7 @@ flat = pooled.reshape([1, 12])
 sq = flat.squeeze()              # removes dims of size 1
 ```
 
-- `examples/` includes torch-free demos: MNIST MLP, CIFAR-like CNN, tiny transformer-style FFN, CUDA matmul demo, perf profiler, and autograd graph export.
+- `examples/` includes torch-free demos: synthetic blob MLP, MNIST MLP, CIFAR-like CNN, tiny transformer-style FFN, CUDA matmul demo, perf profiler, and autograd graph export.
 - `tinyfin.data` ships `load_mnist` and `load_cifar10`; examples download data when present, otherwise use synthetic data.
 
 Docs and guides
@@ -81,6 +81,7 @@ Docs and guides
 - `docs/examples.md`: example roadmap and status.
 - `docs/howto.md`: short how-to recipes for common tasks.
 - `docs/mixed_precision.md`: stubbed `tinyfin.autocast` / `set_mixed_precision`.
+- `docs/release.md`: release checklist for local verification.
 
 Status
 

@@ -95,11 +95,9 @@ class Sequential(Module):
 class Linear(Module):
     def __init__(self, in_features, out_features):
         super().__init__()
-        # create parameter tensors that require grad
-        w_base = Tensor.new([in_features, out_features])
-        b_base = Tensor.new([out_features])
-        w = Tensor.new_like(w_base, 1)
-        b = Tensor.new_like(b_base, 1)
+        w = Tensor.xavier_uniform([in_features, out_features], requires_grad=True)
+        b = Tensor.new([out_features], requires_grad=True)
+        b.numpy_view()[:] = 0.0
         self.register_parameter('weight', Parameter(w))
         self.register_parameter('bias', Parameter(b))
 

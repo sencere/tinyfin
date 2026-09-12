@@ -2,6 +2,7 @@ CC ?= gcc
 DEBUGFLAGS ?= -g -O0
 CFLAGS ?= -std=c99 -O2 -Wall -Wextra -Werror -I. -Isrc -Iinclude/tinyfin -finput-charset=UTF-8 -fexec-charset=UTF-8
 NVCC ?= nvcc
+CUDA_HOME ?= /usr/local/cuda
 NVCCFLAGS ?= -O2 -Xcompiler -fPIC -I. -Isrc -Iinclude/tinyfin
 
 # Allow building tests with debug symbols by setting DEBUG=1
@@ -29,9 +30,9 @@ CUDA_SRC := $(wildcard src/*.cu)
 
 ifdef ENABLE_CUDA
 CUDA_OBJS := $(CUDA_SRC:.cu=.o)
-CFLAGS += -DTINYFIN_ENABLE_CUDA
-NVCCFLAGS += -DTINYFIN_ENABLE_CUDA
-LDFLAGS += -lcudart -lpthread
+CFLAGS += -DTINYFIN_ENABLE_CUDA -I$(CUDA_HOME)/include
+NVCCFLAGS += -DTINYFIN_ENABLE_CUDA -I$(CUDA_HOME)/include
+LDFLAGS += -L$(CUDA_HOME)/lib64 -L$(CUDA_HOME)/targets/x86_64-linux/lib -lcudart -lpthread
 ENABLE_CUBLAS ?= 1
 ifdef ENABLE_CUBLAS
 CFLAGS += -DTINYFIN_ENABLE_CUBLAS
@@ -57,7 +58,9 @@ CFLAGS += -DTINYFIN_ENABLE_OPENGL_STUB -DTINYFIN_ENABLE_VULKAN_STUB
 # Test files: discover all tests in the tests/ directory
 TESTS := $(wildcard tests/*.c)
 
-all: $(TESTS:.c=)
+all: libtinyfin.so $(TESTS:.c=)
+
+tests: $(TESTS:.c=)
 
 $(TESTS:.c=): %: $(SRC) $(CUDA_OBJS) %.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
@@ -82,4 +85,4 @@ ubsan:
 valgrind: all
 	$(VALGRIND) $(VALGRIND_FLAGS) $(VALGRIND_TEST)
 
-.PHONY: all clean asan ubsan valgrind
+.PHONY: all tests clean asan ubsan valgrind

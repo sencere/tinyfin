@@ -66,7 +66,7 @@ def _tensor_from_state(state: Dict[str, Any]) -> Tensor:
     # For now tinyfin stores float32; reject mismatched dtype eagerly.
     if dtype is not None and str(dtype) not in ("float32", "float"):
         raise ValueError(f"Unsupported tensor dtype in checkpoint: {dtype}")
-    expected_size = math.prod(shape) if shape else 0
+    expected_size = math.prod(shape)
     if len(data) != expected_size:
         raise ValueError(f"Tensor data length mismatch: expected {expected_size}, got {len(data)}")
     if checksum:

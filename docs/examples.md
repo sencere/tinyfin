@@ -3,6 +3,7 @@
 This note tracks the example suite we want to ship and how to run them across backends.
 
 ## Core demos (CPU/CUDA/OpenGL/Vulkan where available)
+- Blob MLP: download-free three-class classification smoke test (`examples/blob_mlp.py`).
 - MNIST/CIFAR CNN: minimal training/eval loops with DataLoader and checkpoints; flag to select backend (`TINYFIN_BACKEND=cpu|cuda|opengl|vulkan`).
 - Transformer/BERT-style: small transformer block demo (embedding + FFN with residual) with synthetic data; export traces for profiling (`examples/transformer_block_tiny.py`).
 - Text generation: tiny character-level model for quick smoke tests (`examples/text_gen_tiny.py`).

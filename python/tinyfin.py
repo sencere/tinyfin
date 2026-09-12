@@ -8,17 +8,27 @@ import importlib.machinery
 import os
 import hashlib
 
+__version__ = "0.1.0"
+
 # Allow submodule imports (namespace-like) alongside this module file.
 __package__ = __name__
 _this_dir = os.path.dirname(__file__)
 __spec__ = importlib.machinery.ModuleSpec(__name__, None)
 __spec__.submodule_search_locations = [_this_dir]
 __path__ = __spec__.submodule_search_locations
+if __name__ == "tinyfin":
+    sys.modules.setdefault("tinyfin.tinyfin", sys.modules[__name__])
 
-# Load shared library built by Makefile (libtinyfin.so)
+# Load shared library built by Makefile (libtinyfin.so).
 _here = os.path.dirname(__file__)
-_lib_path = os.path.join(_here, '..', 'libtinyfin.so')
-_lib_path = os.path.normpath(_lib_path)
+_lib_candidates = []
+if os.environ.get("TINYFIN_LIB"):
+    _lib_candidates.append(os.environ["TINYFIN_LIB"])
+_lib_candidates.extend([
+    os.path.join(_here, 'libtinyfin.so'),
+    os.path.join(_here, '..', 'libtinyfin.so'),
+])
+_lib_path = next((os.path.normpath(p) for p in _lib_candidates if os.path.exists(os.path.normpath(p))), os.path.normpath(_lib_candidates[0]))
 lib = ctypes.CDLL(_lib_path)
 
 def _higher_order_enabled():
@@ -213,6 +223,9 @@ lib.py_backend_set_by_name = lib.py_backend_set_by_name if hasattr(lib, 'py_back
 if lib.py_backend_set_by_name:
     lib.py_backend_set_by_name.argtypes = (ctypes.c_char_p,)
     lib.py_backend_set_by_name.restype = ctypes.c_int
+    _backend_env = os.environ.get("TINYFIN_BACKEND")
+    if _backend_env:
+        lib.py_backend_set_by_name(_backend_env.encode())
 
 lib.py_squeeze = lib.py_squeeze if hasattr(lib, 'py_squeeze') else None
 if lib.py_squeeze:
@@ -346,7 +359,7 @@ if lib.py_autograd_pop:
 lib.py_autograd_to_dot = lib.py_autograd_to_dot if hasattr(lib, 'py_autograd_to_dot') else None
 if lib.py_autograd_to_dot:
     lib.py_autograd_to_dot.argtypes = (ctypes.c_void_p,)
-    lib.py_autograd_to_dot.restype = ctypes.c_char_p
+    lib.py_autograd_to_dot.restype = ctypes.c_void_p
 
 # tensor device move helper
 lib.py_tensor_to_device = lib.py_tensor_to_device if hasattr(lib, 'py_tensor_to_device') else None
@@ -366,7 +379,7 @@ if lib.py_profiler_get_summary:
     lib.py_profiler_get_summary.restype = ctypes.c_char_p
 lib.py_free_str = lib.py_free_str if hasattr(lib, 'py_free_str') else None
 if lib.py_free_str:
-    lib.py_free_str.argtypes = (ctypes.c_char_p,)
+    lib.py_free_str.argtypes = (ctypes.c_void_p,)
     lib.py_free_str.restype = None
 
 # SGD optimizer bindings
@@ -623,6 +636,8 @@ class Tensor:
         for d in shp: size *= d
         data_ptr = lib.py_tensor_data_ptr(self._ptr)
         arr = np.ctypeslib.as_array(data_ptr, shape=(size,))
+        if shp == ():
+            return arr
         return arr.reshape(shp)
 
     def reshape(self, shape):
@@ -686,6 +701,15 @@ class Tensor:
             lib.py_tensor_set_device(self._ptr, int(device))
         else:
             raise RuntimeError("set_device not available in C API")
+
+    def to_device(self, device):
+        if lib.py_tensor_to_device:
+            p = lib.py_tensor_to_device(self._ptr, int(device))
+            return Tensor(p)
+        out = Tensor.new(self.shape(), requires_grad=self.requires_grad())
+        out.numpy_view()[:] = self.to_numpy()
+        out.set_device(device)
+        return out
 
     def __add__(self, other):
         if not isinstance(other, Tensor):
@@ -1912,13 +1936,12 @@ def const_fold_ir(ir):
     while changed:
         changed = False
         for node_id, inputs in list(outgoing.items()):
-            if node_id in const_nodes:
-                continue
             if all(inp in const_nodes for inp in inputs):
+                if not nodes[node_id].get("const_folded"):
+                    nodes[node_id]["const_folded"] = True
+                    changed = True
                 const_nodes.add(node_id)
-                nodes[node_id]["const_folded"] = True
                 outgoing[node_id] = []
-                changed = True
 
     new_edges = [(src, dst) for src, dst in edges if dst in outgoing.get(src, [])]
     return {"nodes": list(nodes.values()), "edges": new_edges}
@@ -1939,13 +1962,13 @@ def graph_cache_key(tensor):
     """Hash graph nodes/edges including shape/dtype/device for cache keys."""
     import hashlib
     ir = export_graph_ir(tensor)
-    nodes = sorted(ir["nodes"], key=lambda n: n.get("id", ""))
-    edges = sorted(ir["edges"])
+    nodes = list(ir["nodes"])
+    node_pos = {n.get("id"): i for i, n in enumerate(nodes)}
+    edges = sorted((node_pos.get(src, -1), node_pos.get(dst, -1)) for src, dst in ir["edges"])
     payload = []
     for n in nodes:
         payload.append(
             (
-                n.get("id"),
                 n.get("device"),
                 n.get("dtype"),
                 n.get("shape"),

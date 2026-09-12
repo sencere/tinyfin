@@ -15,11 +15,12 @@ Linear = nn.Linear
 
 # Simple smoke test for Linear
 x = Tensor.new([1,2])
-arr = x.to_numpy()
+arr = x.numpy_view()
 arr[0,0] = 1.0
 arr[0,1] = 2.0
 # create linear layer
 l = Linear(2,3)
+assert (abs(l.weight.tensor.to_numpy()) > 0).any()
 y = l(x)
 # shape should be (1,3)
 assert tuple(y.to_numpy().shape) == (1,3)
